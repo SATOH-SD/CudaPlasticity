@@ -1,3 +1,0 @@
-C:/Projects/C++/IT/CudaPlasticity/build/CMakeFiles/CudaPlasticity.dir
-C:/Projects/C++/IT/CudaPlasticity/build/CMakeFiles/ALL_BUILD.dir
-C:/Projects/C++/IT/CudaPlasticity/build/CMakeFiles/ZERO_CHECK.dir
