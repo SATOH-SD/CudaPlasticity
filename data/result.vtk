@@ -1,0 +1,58 @@
+# vtk DataFile Version 2.0
+Eyy
+ASCII
+DATASET POLYDATA
+POINTS 9 float
+-1 -1 0.0
+-1 0 0.0
+-1 1 0.0
+0 -1 0.0
+0 0 0.0
+0 1 0.0
+1 -1 0.0
+1 0 0.0
+1 1 0.0
+POLYGONS 4 20
+4 4 1 0 3 
+4 5 2 1 4 
+4 7 4 3 6 
+4 8 5 4 7 
+CELL_DATA 4
+SCALARS ElementID int 1
+LOOKUP_TABLE default
+0
+1
+2
+3
+FIELD FieldData 8
+Eps_xx 1 4 float
+1 1 1 1 
+Eps_yy 1 4 float
+-0.29 -0.29 -0.29 -0.29 
+Gamma_xy 1 4 float
+-2.77556e-17 3.18366e-16 -3.05311e-16 3.01787e-16 
+Eps_intensity 1 4 float
+0.78148 0.78148 0.78148 0.78148 
+Sigma_xx 1 4 float
+1 1 1 1 
+Sigma_yy 1 4 float
+-6.06083e-17 1.21217e-16 2.42433e-16 1.81825e-16 
+Tau_xy 1 4 float
+-1.0758e-17 1.23398e-16 -1.18338e-16 1.16972e-16 
+Sigma_intensity 1 4 float
+1 1 1 1 
+POINT_DATA 9
+SCALARS NodeID int 1
+LOOKUP_TABLE my_table
+0
+1
+2
+3
+4
+5
+6
+7
+8
+FIELD FieldData2 1
+Displacement 3 9 float
+0 0.29 0 0 0 0 0 -0.29 0 1 0.29 0 1 1.92643e-16 0 1 -0.29 0 2 0.29 0 2 2.41104e-16 0 2 -0.29 0 

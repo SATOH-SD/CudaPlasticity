@@ -1,0 +1,57 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CudaCompile Include="..\src\ConjGradCuda.cu">
+      <Filter>Source Files</Filter>
+    </CudaCompile>
+    <CudaCompile Include="..\src\CudaSLAE.cu">
+      <Filter>Source Files</Filter>
+    </CudaCompile>
+    <CudaCompile Include="..\src\CudaSparseSLAE.cu">
+      <Filter>Source Files</Filter>
+    </CudaCompile>
+    <CudaCompile Include="..\src\Main.cpp">
+      <Filter>Source Files</Filter>
+    </CudaCompile>
+    <CudaCompile Include="..\src\Material.cu">
+      <Filter>Source Files</Filter>
+    </CudaCompile>
+    <CudaCompile Include="..\src\Mesh.cu">
+      <Filter>Source Files</Filter>
+    </CudaCompile>
+    <CudaCompile Include="..\src\PlasticitySolver.cu">
+      <Filter>Source Files</Filter>
+    </CudaCompile>
+    <CudaCompile Include="..\src\SLAE_Solvers.cu">
+      <Filter>Source Files</Filter>
+    </CudaCompile>
+    <CudaCompile Include="..\src\vec2.cu">
+      <Filter>Source Files</Filter>
+    </CudaCompile>
+    <CudaCompile Include="..\src\ConjGradSolver.h">
+      <Filter>Source Files</Filter>
+    </CudaCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Projects\C++\IT\CudaPlasticity\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\Projects\C++\IT\CudaPlasticity\src\CudaSparseSLAE.cuh" />
+    <None Include="C:\Projects\C++\IT\CudaPlasticity\src\GaussScheme.cuh" />
+    <None Include="C:\Projects\C++\IT\CudaPlasticity\src\LoadConditions.cuh" />
+    <None Include="C:\Projects\C++\IT\CudaPlasticity\src\Material.cuh" />
+    <None Include="C:\Projects\C++\IT\CudaPlasticity\src\Mesh.cuh" />
+    <None Include="C:\Projects\C++\IT\CudaPlasticity\src\PlasticitySolver.cuh" />
+    <None Include="C:\Projects\C++\IT\CudaPlasticity\src\SLAE_Solvers.cuh" />
+    <None Include="..\src\SparseSLAE.h" />
+    <None Include="C:\Projects\C++\IT\CudaPlasticity\src\StaticMatrix.cuh" />
+    <None Include="..\src\StripSLAE.h" />
+    <None Include="C:\Projects\C++\IT\CudaPlasticity\src\SymMatrix.cuh" />
+    <None Include="C:\Projects\C++\IT\CudaPlasticity\src\vec2.cuh" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{E2512A5A-58F2-3E4C-8C08-8223A1251663}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
