@@ -208,6 +208,9 @@ public:
 			cudaFree(dev_skewAngles);
 		}
 		delete[] dev_borders;
+
+		//TODO: null sizes and pointers
+		//TODO: delete secOrdNodes
 	}
 
 	int elemCount() const {

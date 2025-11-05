@@ -221,6 +221,7 @@ inline void formKe8(SymMatrix<16, fp>& Ke, const int e, const StaticMatrix<2, 8,
 		}
 	for (int i = 0; i < Ke.dataSize(); ++i)
 		Ke.data[i] *= h;
+	//TODO: optimize coefs mults
 }
 
 template<typename fp>
@@ -794,7 +795,7 @@ void PlasticitySolver::fillGlobalStiffness(StripSLAE& K, SparseSLAE& spK) {
 		(*formC)(Ce, E_c[e], nu_c[e]);
 		SymMatrix<8, double> Ke;
 		memcpy(C + e, &Ce, sizeof(Ce));
-		formKe4(Ke, e, B4, detJ4, Ce, m.h);
+		formKe4(Ke, e - mesh.elemPos[0], B4, detJ4, Ce, m.h);
 		distribKe4(K, Ke, e);
 	}
 #pragma omp parallel for
@@ -803,7 +804,7 @@ void PlasticitySolver::fillGlobalStiffness(StripSLAE& K, SparseSLAE& spK) {
 		(*formC)(Ce, E_c[e], nu_c[e]);
 		memcpy(C + e, &Ce, sizeof(Ce));
 		SymMatrix<16, double> Ke;
-		formKe8(Ke, e, B8, detJ8, Ce, m.h);
+		formKe8(Ke, e - mesh.elemPos[1], B8, detJ8, Ce, m.h);
 		distribKe8(K, Ke, e);
 	}
 	spK.copy(K);

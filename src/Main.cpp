@@ -74,9 +74,9 @@ void holePlateTest() {
 //Тест в кольце
 void testRing() {
 	Mesh mesh;
-	mesh.genRing(0.1, 0.2, 40, 5);
+	mesh.genRing(0.1, 0.2, 400, 50);
 	//mesh.print();
-	//mesh.printAnalysis();
+	mesh.printAnalysis();
 	//mesh.saveAsVtk("../data/ring.vtk");
 	//mesh.useCuda = false;
 
@@ -94,14 +94,15 @@ void testRing() {
 	lc.fixHorAxis(0.);
 
 	Material m;
-	m.E = 1.1e10;
+	//m.E = 1.1e10;
+	m.setLinearPlast(1.1e10, 1e20, 1.1e10);
 	m.nu = 0.3;
 	m.h = 0.1;
 
 	PlasticitySolver ps(m, mesh, lc);
 	ps.polarCoord = true;
-	//ps.solveElast();
-	ps.solve();
+	ps.solveElast();
+	//ps.solve();
 	//ps.saveDisplsToFile("../data/ringTest.txt");
 	ps.saveAsVtk("../data/ring.vtk");
 }
@@ -254,11 +255,11 @@ void plasticityTest() {
 	Mesh mesh;
 	//mesh.useCuda = false;
 	mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 48, 32, 1);
-	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 96 * 2, 64 * 2, 1);
+	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 96 * 3, 64 * 3, 1);
 	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 144, 96, 2);
 	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 6 * 4, 4 * 4, 1);
 	//mesh.genRectangle(-2, 2, -2, 2, 2, 2);
-	//mesh.printAnalysis();
+	mesh.printAnalysis();
 	//mesh.renumByDirection();
 	std::cout << "max diff " << mesh.findMaxIndexDiff() << "\n\n";
 	//mesh.saveAsVtk("../data/renumMesh.vtk");
@@ -276,8 +277,8 @@ void plasticityTest() {
 	m.h = 1.;
 	//m.setLinearPlast(193e9, 170e6, 110e9);
 	//m.setLinearPlast(220e9, 170e6, 22e9);
-	//m.setLinearPlast(E_304L * 1e-6, s_T_304L * 1e-6, E_304L * 0.1 * 1e-6);
-	m.setPowerPlast(E_304L * 1e-6, s_T_304L * 1e-6, E_304L * 0.01 * 1e-6, 0.015);
+	m.setLinearPlast(E_304L * 1e-6, s_T_304L * 1e-6, E_304L * 0.1 * 1e-6);
+	//m.setPowerPlast(E_304L * 1e-6, s_T_304L * 1e-6, E_304L * 0.01 * 1e-6, 0.015);
 	//m.E = E_304L;//220e9;
 	m.nu = nu_304L;//0.3;
 
@@ -290,7 +291,7 @@ void plasticityTest() {
 	//ps.floatBoost = false;
 	ps.solve();
 	//ps.polarCoord = true;
-	ps.saveAsVtk("../data/holePlatePlastPow.vtk");
+	ps.saveAsVtk("../data/holePlatePlast.vtk");
 	//std::cout << "saved\n";
 	//std::cin.get();
 }
@@ -1190,6 +1191,89 @@ void meshUpgradeTest() {
 }
 
 
+void beamTest() {
+	Mesh mesh;
+	mesh.genRectangle(0, 1, -0.05, 0.05, 100, 10);
+
+	LoadConditions lc;
+	lc.setDisplacement(2, vec2(0, 0));
+	//lc.setForce(0, vec2(0, -1e-3));
+	lc.setForcePoint(vec2(1., 0.), vec2(0., -1e-3));
+
+	Material m;
+	m.setLinearPlast(220, 1000, 220);
+	m.nu = 0.3;
+
+	PlasticitySolver ps(m, mesh, lc);
+	ps.solveElast();
+	ps.saveAsVtk("../data/beam.vtk");
+}
+
+
+void stroiMechBeam() {
+	Mesh mesh;
+	mesh.genRectangle(0., 3., -0.1, 0.1, 600, 40);
+
+	Material m;
+	m.setLinearPlast(2e11, 1e20, 2e11);
+	m.nu = 0.3;
+
+	{
+		double p_max = 1.5e8;
+		LoadConditions load1;
+		load1.fixBorderVert(2);
+		load1.fixPoint(vec2(0., -0.1));
+		load1.setForce(0, [=](vec2 r) { return vec2(p_max * r.y * 10, 0.); });
+
+		PlasticitySolver solver1(m, mesh, load1);
+		solver1.solveElast();
+		solver1.saveAsVtk("../data/StroiMech/Beam1.vtk");
+	}
+	double Fy = 1e6;
+	{
+		LoadConditions load2a;
+		load2a.fixBorder(0);
+		load2a.setForce(2, vec2(0., Fy));
+
+		PlasticitySolver solver2a(m, mesh, load2a);
+		solver2a.solveElast();
+		solver2a.saveAsVtk("../data/StroiMech/Beam2a.vtk");
+	}
+	{
+		LoadConditions load2b;
+		load2b.fixBorder(0);
+		load2b.setForce(2, [=](vec2 r) { return vec2(0., 2000 * 0.5e6 / 6.7 * (0.01 - r.y * r.y)); });
+
+		PlasticitySolver solver2b(m, mesh, load2b);
+		solver2b.solveElast();
+		solver2b.saveAsVtk("../data/StroiMech/Beam2b.vtk");
+	}
+	{
+		//Fy = 3e6;
+		LoadConditions load3_1;
+		load3_1.fixPoint(vec2(3., 0.));
+		load3_1.fixPoint(vec2(0., 0.));
+		load3_1.setForce(1, vec2(0., 10e3 / 0.01));
+
+		PlasticitySolver solver3_1(m, mesh, load3_1);
+		solver3_1.solveElast();
+		solver3_1.saveAsVtk("../data/StroiMech/Beam3_1.vtk");
+	}
+	mesh.genRectangle(1.5, 3., -0.1, 0.1, 300, 40);
+	{
+		//Fy = 3e6;
+		LoadConditions load3_2;
+		load3_2.fixPoint(vec2(3., 0.));
+		load3_2.setForce(1, vec2(0., 10e3 / 0.01));
+		load3_2.fixBorderVert(2);
+
+		PlasticitySolver solver3_2(m, mesh, load3_2);
+		solver3_2.solveElast();
+		solver3_2.saveAsVtk("../data/StroiMech/Beam3_2.vtk");
+	}
+}
+
+
 int main() { //выбор запускаемого теста
 
 	//meshTest();
@@ -1222,6 +1306,10 @@ int main() { //выбор запускаемого теста
 
 	//speedTestAlpha();
 
-	speedTest2();
+	//speedTest2();
+
+	//beamTest();
+
+	stroiMechBeam();
 
 }

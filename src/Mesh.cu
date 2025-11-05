@@ -110,16 +110,47 @@ void Mesh::genRectangle(double x1, double x2, double y1, double y2, size_t N1, s
 
 
 void Mesh::genRectWithHole(double x1, double x2, double y1, double y2, double holeRad, size_t N1, size_t N2, int order) {
+	const double pi = 3.141'592'653'589'793;
+	const bool enhanced = true;
 	std::cout << "Mesh generation...";
 	int borderN = (N1 + N2) * 2;
 	int radN = (N1 + N2) / 4;
 	radN = round(double(radN) * (x2 - x1 + y2 - y1 - 4. * holeRad) * 2. / (x2 - x1 + y2 - y1));
 	//std::cout << radN << "\n";
-	if (order == 2) {
-		N1 *= 2; N2 *= 2;
-		borderN *= 2;
-		radN *= 2;
+
+	double* steps = nullptr;
+	if constexpr (enhanced) {
+		double a = holeRad * pi, b = (x2 - x1) + (y2 - y1);
+		radN = (size_t)round(borderN * (b - a) / (pi * (a + b)));
+		if (order == 2) {
+			N1 *= 2; N2 *= 2;
+			borderN *= 2;
+			radN *= 2;
+		}
+		//std::cout << (borderN * (b - a) / (pi * (a + b))) << "\n\n";
+		steps = new double[radN + 1];
+		double alpha = 2. / (double(radN) * (a + b));
+		double a1 = alpha * a;
+		double h = alpha * (b - a) / double(radN - 1);
+		for (size_t i = 0; i <= radN; ++i)
+			steps[i] = (2. * a1 + h * (double(i) - 1.)) * 0.5 * i;
 	}
+	else {
+		if (order == 2) {
+			N1 *= 2; N2 *= 2;
+			borderN *= 2;
+			radN *= 2;
+		}
+		steps = new double[radN + 1];
+		double h = 1. / double(radN);
+		for (size_t i = 0; i <= radN; ++i)
+			steps[i] = h * i;
+	}
+	//for (size_t i = 0; i <= radN; ++i) \
+			std::cout << steps[i] << "\n";
+
+	
+	
 
 	delete[] borderLength;
 	for (int i = 0; i < bordersCount; ++i)
@@ -166,7 +197,7 @@ void Mesh::genRectWithHole(double x1, double x2, double y1, double y2, double ho
 	}
 	borders[3][borderLength[3] - 1] = 0;
 
-	const double pi = 3.141'592'653'589'793;
+	//const double pi = 3.141'592'653'589'793;
 	double phi = 2. * pi / borderN;
 	nodeId = radN * borderN;
 	vec2 center(0.5 * (x1 + x2), 0.5 * (y1 + y2));
@@ -177,16 +208,23 @@ void Mesh::genRectWithHole(double x1, double x2, double y1, double y2, double ho
 	}
 	borders[4][borderLength[4] - 1] = nodeCount - 1;
 
-	vec2 rh = (node[radN * borderN] - node[0]) / radN;
-	for (int i = 1; i < radN; ++i) //rad - 1?
-		node[i * borderN] = node[0] + rh * i;
-	rh = (node[nodeCount - 1] - node[borderN - 1]) / radN;
+	//vec2 rh = (node[radN * borderN] - node[0]) / radN;
+	//for (int i = 1; i < radN; ++i) //rad - 1?
+	//	node[i * borderN] = node[0] + rh * i;
+	vec2 len = (node[radN * borderN] - node[0]);
+	for (size_t i = 1; i < radN; ++i)
+		node[i * borderN] = node[0] + len * (1. - steps[radN - i]);
+
+	/*rh = (node[nodeCount - 1] - node[borderN - 1]) / radN;
 	for (int i = 1; i < radN; ++i)
-		node[i * borderN + borderN - 1] = node[borderN - 1] + rh * i;
+		node[i * borderN + borderN - 1] = node[borderN - 1] + rh * i;*/
 	for (size_t j = 1; j < borderN; ++j) {
-		vec2 rh = (node[radN * borderN + j] - node[j]) / radN;
+		/*vec2 rh = (node[radN * borderN + j] - node[j]) / radN;
 		for (size_t i = 1; i < radN; ++i)
-			node[i * borderN + j] = node[j] + rh * i;
+			node[i * borderN + j] = node[j] + rh * i;*/
+		vec2 len = (node[radN * borderN + j] - node[j]);
+		for (size_t i = 1; i < radN; ++i)
+			node[i * borderN + j] = node[j] + len * (1. - steps[radN - i]);
 	}
 
 	count4 = borderN * radN;
@@ -218,6 +256,8 @@ void Mesh::genRectWithHole(double x1, double x2, double y1, double y2, double ho
 		elem4[begin + 3] = i * borderN;
 		elem4[begin + 0] = (i + 1) * borderN;
 	}
+	delete[] steps;
+
 	ramSaved = true;
 	analysed = false;
 	//useCuda = false;
@@ -247,10 +287,35 @@ void Mesh::genRectWithHole(double x1, double x2, double y1, double y2, double ho
 
 //Сгенерировать сетку для кольца с внутренним радиусом а и внешним радиусом b
 void Mesh::genRing(double a, double b, size_t N_phi, size_t N_r, int order) {
+	const double pi = 3.141'592'653'589'793;
+	const bool enhanced = true;
 	std::cout << "Mesh generation...";
-	if (order == 2) {
-		N_phi *= 2; N_r *= 2;
+
+	double* steps = nullptr;
+	if constexpr (enhanced) {
+		//std::cout << N_r << "\n";
+		N_r = (size_t)round(N_phi * (b - a) / (pi * (a + b)));
+		//std::cout << (N_phi * (b - a) / (pi * (a + b))) << "\n\n";
+		if (order == 2)
+			N_phi *= 2; N_r *= 2;
+		steps = new double[N_r + 1];
+		double alpha = 2. / (double(N_r) * (a + b));
+		double a1 = alpha * a;
+		double h = alpha * (b - a) / double(N_r - 1);
+		for (size_t i = 0; i <= N_r; ++i)
+			steps[i] = a + (b - a) * ((2. * a1 + h * (double(i) - 1.)) * 0.5 * i);
+		//for (size_t i = 0; i <= N_r; ++i) \
+			std::cout << (steps[i] - a) / (b - a) << "\n";
 	}
+	else {
+		if (order == 2)
+			N_phi *= 2; N_r *= 2;
+		steps = new double[N_r + 1];
+		double h = (b - a) / double(N_r);
+		for (size_t i = 0; i <= N_r; ++i)
+			steps[i] = a + h * i;
+	}
+
 	delete[] borderLength;
 	for (int i = 0; i < bordersCount; ++i)
 		delete[] borders[i];
@@ -272,12 +337,13 @@ void Mesh::genRing(double a, double b, size_t N_phi, size_t N_r, int order) {
 	for (int i = 0; i < bordersCount; ++i)
 		borders[i] = new int[borderLength[i]];
 
-	const double pi = 3.141'592'653'589'793;
 	double h_r = (b - a) / N_r, h_phi = 2. * pi / N_phi;
 
 	for (int j = 0; j < N_phi; ++j) {
 		for (int i = 0; i <= N_r; ++i) {
-			double r = b - h_r * i;
+			//double r = b - h_r * i;
+			double r = steps[N_r - i];
+
 			double phi = h_phi * j;
 			node[i * N_phi + j] = vec2(r * cos(phi), r * sin(phi));
 		}
@@ -315,6 +381,8 @@ void Mesh::genRing(double a, double b, size_t N_phi, size_t N_r, int order) {
 		elem4[begin + 2] = i * N_phi + N_phi - 1;
 		elem4[begin + 1] = (i + 1) * N_phi + N_phi - 1;
 	}
+	delete[] steps;
+
 	ramSaved = true;
 	analysed = false;
 	//useCuda = false;
