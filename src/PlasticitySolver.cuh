@@ -540,4 +540,12 @@ public:
 		return fmax(fmax(maxErrSrr, maxErrSphiphi), maxErrSrphi);
 	}
 
+	void saveResidualsAsVtk(const std::string& fileName, \
+		std::function<double(vec2)> u_x,
+		std::function<double(vec2)> u_y,
+		std::function<double(vec2)> sigma_x,
+		std::function<double(vec2)> sigma_y,
+		std::function<double(vec2)> tau_xy
+	);
+
 };

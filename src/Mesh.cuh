@@ -225,6 +225,8 @@ public:
 
 	void genRing(double a, double b, size_t N_phi, size_t N_r, int order = 1);
 
+	void genArc(double a, double b, double phi1, double phi2, size_t N_phi, size_t N_r, int order = 1);
+
 	void renumerateRing(int borderN);
 
 	void renumByDirection(vec2 direction = {1., 1.});

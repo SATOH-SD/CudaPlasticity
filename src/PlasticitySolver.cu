@@ -1819,7 +1819,7 @@ void PlasticitySolver::saveAsVtk(const std::string& fileName) {
 		file << i << "\n";
 	}
 
-	file.precision(16);
+	//file.precision(16);
 	int fields = 8 + (plastSolved ? 7 : 0) + (mesh.analysed ? 3 : 0);
 	file << "FIELD FieldData " << fields;
 	if (polarCoord) {
@@ -1941,6 +1941,99 @@ void PlasticitySolver::saveAsVtk(const std::string& fileName) {
 	file << "\nFIELD FieldData2 1\nDisplacement 3 " << mesh.nodeCount << " float\n";
 	for (size_t i = 0; i < mesh.nodeCount; ++i)
 		file << uv[2 * i] << " " << uv[2 * i + 1] << " 0 ";
+
+	file.close();
+}
+
+void PlasticitySolver::saveResidualsAsVtk(const std::string& fileName, \
+	std::function<double(vec2)> u_x,
+	std::function<double(vec2)> u_y,
+	std::function<double(vec2)> sigma_x,
+	std::function<double(vec2)> sigma_y,
+	std::function<double(vec2)> tau_xy
+) {
+	if (!mesh.ramSaved)
+		mesh.meshToRAM();
+	if (!ramSaved)
+		dataToRAM();
+
+	double maxDispl = 0.;
+	for (int i = 0; i < mesh.nodeCount; ++i) {
+		double displ = sqrt(uv[2 * i] * uv[2 * i] + uv[2 * i + 1] * uv[2 * i + 1]);
+		if (displ > maxDispl)
+			maxDispl = displ;
+	}
+	double maxStress = 0.;
+	for (int e = 0; e < mesh.elemCount(); ++e) {
+		double stress = intensityS[e];
+		if (stress > maxStress)
+			maxStress = stress;
+	}
+	std::cout << maxDispl << " " << maxStress << "\n";
+
+	std::ofstream file(fileName, std::ios_base::out);
+	file << "# vtk DataFile Version 2.0\n";
+	file << "Residuals\n";
+	file << "ASCII\n";
+	file << "DATASET POLYDATA\n";
+	file << "POINTS " << mesh.nodeCount << " float\n";
+	for (size_t i = 0; i < mesh.nodeCount; ++i)
+		file << mesh.node[i].x << " " << mesh.node[i].y << " " << 0 << "\n";
+	file << "POLYGONS " << mesh.elemCount() << " " << 4 * mesh.count3 + 5 * mesh.count4 + 9 * mesh.count8;
+	for (size_t i = 0; i < mesh.count3; ++i) {
+		file << "\n3 ";
+		for (size_t j = 3 * i; j < 3 * (i + 1); ++j)
+			file << mesh.elem3[j] << " ";
+	}
+	for (size_t i = 0; i < mesh.count4; ++i) {
+		file << "\n4 ";
+		for (size_t j = 4 * i; j < 4 * (i + 1); ++j)
+			file << mesh.elem4[j] << " ";
+	}
+	for (size_t i = 0; i < mesh.count8; ++i) {
+		file << "\n8 ";
+		for (size_t j = 8 * i; j < 8 * i + 4; ++j)
+			file << mesh.elem8[j] << " " << mesh.elem8[j + 4] << " ";
+	}
+	file << "\nCELL_DATA " << mesh.elemCount() << "\n";
+	file << "SCALARS ElementID int 1\n";
+	file << "LOOKUP_TABLE default\n";
+	for (size_t i = 0; i < mesh.elemCount(); ++i) {
+		file << i << "\n";
+	}
+
+	//file.precision(16);
+	int fields = 3;
+	file << "FIELD FieldData " << fields;
+	{
+		file << "\nSigma_xx 1 " << mesh.elemCount() << " float\n";
+		for (int i = 0; i < mesh.count4; ++i) { //TO DO: other element types
+			vec2 r = 0.25 * (mesh.node[mesh.elem4[4 * i]] + mesh.node[mesh.elem4[4 * i + 1]] + \
+				mesh.node[mesh.elem4[4 * i + 2]] + mesh.node[mesh.elem4[4 * i + 3]]);
+			file << fabs(sxx[i] - sigma_x(r)) / maxStress << " ";
+		}
+		file << "\nSigma_yy 1 " << mesh.elemCount() << " float\n";
+		for (int i = 0; i < mesh.count4; ++i) { //TO DO: other element types
+			vec2 r = 0.25 * (mesh.node[mesh.elem4[4 * i]] + mesh.node[mesh.elem4[4 * i + 1]] + \
+				mesh.node[mesh.elem4[4 * i + 2]] + mesh.node[mesh.elem4[4 * i + 3]]);
+			file << fabs(syy[i] - sigma_y(r)) / maxStress << " ";
+		}
+		file << "\nTau_xy 1 " << mesh.elemCount() << " float\n";
+		for (int i = 0; i < mesh.count4; ++i) { //TO DO: other element types
+			vec2 r = 0.25 * (mesh.node[mesh.elem4[4 * i]] + mesh.node[mesh.elem4[4 * i + 1]] + \
+				mesh.node[mesh.elem4[4 * i + 2]] + mesh.node[mesh.elem4[4 * i + 3]]);
+			file << fabs(tau[i] - tau_xy(r)) / maxStress << " ";
+		}
+	}
+
+	file << "\nPOINT_DATA " << mesh.nodeCount << \
+		"\nSCALARS NodeID int 1\nLOOKUP_TABLE my_table";
+	for (int i = 0; i < mesh.nodeCount; ++i)
+		file << "\n" << i;
+	file << "\nFIELD FieldData2 1\nDisplacement 3 " << mesh.nodeCount << " float\n";
+	for (int i = 0; i < mesh.nodeCount; ++i)
+		file << fabs(uv[2 * i] - u_x(mesh.node[i])) / maxDispl \
+		<< " " << fabs(uv[2 * i + 1] - u_y(mesh.node[i])) / maxDispl << " 0 ";
 
 	file.close();
 }

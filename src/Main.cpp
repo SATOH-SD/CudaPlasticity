@@ -1211,66 +1211,143 @@ void beamTest() {
 
 
 void stroiMechBeam() {
+	double c = 0.1, h = 0.2, b = 0.01, l = 3.;
 	Mesh mesh;
-	mesh.genRectangle(0., 3., -0.1, 0.1, 600, 40);
+	mesh.genRectangle(0., l, -c, c, 600, 40);
 
+	double E = 2e11, mu = 0.3;
+	double Jz = b * h * h * h / 12., G = E * 0.5 / (1. + mu);
 	Material m;
 	m.setLinearPlast(2e11, 1e20, 2e11);
-	m.nu = 0.3;
+	m.nu = mu;
 
 	{
 		double p_max = 1.5e8;
+		double Mz = 1e4;
 		LoadConditions load1;
 		load1.fixBorderVert(2);
 		load1.fixPoint(vec2(0., -0.1));
 		load1.setForce(0, [=](vec2 r) { return vec2(p_max * r.y * 10, 0.); });
 
+		auto u_x = [=](vec2 r) { return Mz / (E * Jz) * r.x * r.y; };
+		auto u_y = [=](vec2 r) { return -mu * Mz * 0.5 / (E * Jz) * r.y * r.y - Mz * 0.5 / (E * Jz) * r.x * r.x + 0.125 * mu * Mz * h * h / (E * Jz); };
+		auto sigma_x = [=](vec2 r) { return Mz / Jz * r.y; };
+		auto sigma_y = [=](vec2 r) { return 0.; };
+		auto tau_xy = [=](vec2 r) { return 0.; };
+
 		PlasticitySolver solver1(m, mesh, load1);
 		solver1.solveElast();
 		solver1.saveAsVtk("../data/StroiMech/Beam1.vtk");
-	}
-	double Fy = 1e6;
-	{
-		LoadConditions load2a;
-		load2a.fixBorder(0);
-		load2a.setForce(2, vec2(0., Fy));
-
-		PlasticitySolver solver2a(m, mesh, load2a);
-		solver2a.solveElast();
-		solver2a.saveAsVtk("../data/StroiMech/Beam2a.vtk");
+		solver1.saveResidualsAsVtk("../data/StroiMech/Res1.vtk", u_x, u_y, sigma_x, sigma_y, tau_xy);
 	}
 	{
-		LoadConditions load2b;
-		load2b.fixBorder(0);
-		load2b.setForce(2, [=](vec2 r) { return vec2(0., 2000 * 0.5e6 / 6.7 * (0.01 - r.y * r.y)); });
+		double P = 2000;
 
-		PlasticitySolver solver2b(m, mesh, load2b);
-		solver2b.solveElast();
-		solver2b.saveAsVtk("../data/StroiMech/Beam2b.vtk");
+		auto u_x = [=](vec2 r) { return -0.5 * P * r.x * r.x * r.y / (E * Jz) - mu * P * r.y * r.y * r.y / (6. * G * Jz) + (0.5 * P * l * l / (E * Jz) - 0.5 * P * c * c / (G * Jz)) * r.y; };
+		auto u_y = [=](vec2 r) { return 0.5 * mu * P * r.y * r.y * r.x / (E * Jz) + P * r.x * r.x * r.x / (6. * E * Jz) - 0.5 * P * l * l * r.x / (E * Jz) + P * l * l * l / (3. * E * Jz); };
+		auto sigma_x = [=](vec2 r) { return -P / Jz * r.x * r.y; };
+		auto sigma_y = [=](vec2 r) { return 0.; };
+		auto tau_xy = [=](vec2 r) { return -0.5 * P / Jz * (c * c - r.y * r.y); };
+
+		double Fy = 1e6;
+		{
+			LoadConditions load2a;
+			load2a.fixBorder(0);
+			load2a.setForce(2, vec2(0., Fy));
+
+			PlasticitySolver solver2a(m, mesh, load2a);
+			solver2a.solveElast();
+			solver2a.saveAsVtk("../data/StroiMech/Beam2a.vtk");
+			solver2a.saveResidualsAsVtk("../data/StroiMech/Res2a.vtk", u_x, u_y, sigma_x, sigma_y, tau_xy);
+		}
+		{
+			LoadConditions load2b;
+			load2b.fixBorder(0);
+			load2b.setForce(2, [=](vec2 r) { return vec2(0., 2000 * 0.5e6 / 6.7 * (0.01 - r.y * r.y)); });
+
+			PlasticitySolver solver2b(m, mesh, load2b);
+			solver2b.solveElast();
+			solver2b.saveAsVtk("../data/StroiMech/Beam2b.vtk");
+			solver2b.saveResidualsAsVtk("../data/StroiMech/Res2b.vtk", u_x, u_y, sigma_x, sigma_y, tau_xy);
+		}
 	}
 	{
-		//Fy = 3e6;
-		LoadConditions load3_1;
-		load3_1.fixPoint(vec2(3., 0.));
-		load3_1.fixPoint(vec2(0., 0.));
-		load3_1.setForce(1, vec2(0., 10e3 / 0.01));
+		l = 1.5;
+		double q = 10e3;
+		auto u_x = [=](vec2 r) { return 0.5 * q / (E * Jz) * ((l * l * r.x - r.x * r.x * r.x / 3.) * r.y + r.x * (2. / 3. * r.y * r.y * r.y - 0.4 * c * c * r.y) + mu * r.x * (r.y * r.y * r.y / 3. - c * c * r.y + 2. / 3. * c * c * c)); };
+		double delta = 5. * q * l * l * l * l / (24. * E * Jz) * (1. + 12. * c * c / (5. * l * l) * (0.8 + mu * 0.5));
+		auto u_y = [=](vec2 r) { return -0.5 * q / (E * Jz) * (r.y * r.y * r.y * r.y / 12. - 0.5 * c * c * r.y * r.y + 2. / 3. * c * c * c * r.y + mu * ((l * l - r.x * r.x) * r.y * r.y * 0.5 + r.y * r.y * r.y * r.y / 6. * 0.2 * c * c * r.y * r.y)) - 0.5 * q / (E * Jz) * (0.5 * l * l * r.x * r.x - r.x * r.x * r.x * r.x / 12. - 0.2 * c * c * r.x * r.x + (1 + 0.5 * mu) * c * c * r.x * r.x) + delta; };
+		
+		auto sigma_x = [=](vec2 r) { return 0.5 * q / Jz * (l * l - r.x * r.x) * r.y + 0.5 * q / Jz * (2. / 3. * r.y * r.y * r.y - 0.4 * c * c * r.y); };
+		auto sigma_y = [=](vec2 r) { return -0.5 * q / Jz * (r.y * r.y * r.y / 3. - c * c * r.y + 2. / 3. * c * c * c); };
+		auto tau_xy = [=](vec2 r) { return -0.5 * q / Jz * (c * c - r.y * r.y) * r.x; };
 
-		PlasticitySolver solver3_1(m, mesh, load3_1);
-		solver3_1.solveElast();
-		solver3_1.saveAsVtk("../data/StroiMech/Beam3_1.vtk");
-	}
-	mesh.genRectangle(1.5, 3., -0.1, 0.1, 300, 40);
-	{
-		//Fy = 3e6;
-		LoadConditions load3_2;
-		load3_2.fixPoint(vec2(3., 0.));
-		load3_2.setForce(1, vec2(0., 10e3 / 0.01));
-		load3_2.fixBorderVert(2);
+		mesh.genRectangle(-l, l, -0.1, 0.1, 300, 40);
+		{
+			//Fy = 3e6;
+			LoadConditions load3_1;
+			load3_1.fixPoint(vec2(l, 0.));
+			load3_1.fixPoint(vec2(-l, 0.));
+			load3_1.setForce(1, vec2(0., q / 0.01));
 
-		PlasticitySolver solver3_2(m, mesh, load3_2);
-		solver3_2.solveElast();
-		solver3_2.saveAsVtk("../data/StroiMech/Beam3_2.vtk");
+			PlasticitySolver solver3_1(m, mesh, load3_1);
+			solver3_1.solveElast();
+			solver3_1.saveAsVtk("../data/StroiMech/Beam3_1.vtk");
+			solver3_1.saveResidualsAsVtk("../data/StroiMech/Res3_1.vtk", u_x, u_y, sigma_x, sigma_y, tau_xy);
+		}
+		mesh.genRectangle(0., l, -0.1, 0.1, 300, 40);
+		{
+			//Fy = 3e6;
+			LoadConditions load3_2;
+			load3_2.fixPoint(vec2(l, 0.));
+			load3_2.setForce(1, vec2(0., q / 0.01));
+			load3_2.fixBorderVert(2);
+
+			PlasticitySolver solver3_2(m, mesh, load3_2);
+			solver3_2.solveElast();
+			solver3_2.saveAsVtk("../data/StroiMech/Beam3_2.vtk");
+			solver3_2.saveResidualsAsVtk("../data/StroiMech/Res3_2.vtk", u_x, u_y, sigma_x, sigma_y, tau_xy);
+		}
 	}
+}
+
+
+void testCurvedBeam() {
+	const double pi = 3.141'592'653'589'793;
+
+	double E = 2e11, mu = 0.3;
+	Material m;
+	m.setLinearPlast(2e11, 1e20, 2e11);
+	m.nu = mu;
+
+	Mesh mesh;
+	mesh.genArc(3., 4., -0.5 * pi, 0., 100, 5, 1);
+	mesh.printAnalysis();
+	//mesh.saveAsVtk("../data/arc1.vtk");
+
+	LoadConditions load1;
+	load1.fixBorder(2);
+	load1.setForce(0, vec2(-1e6, 0.));
+	
+	PlasticitySolver solver1(m, mesh, load1);
+	solver1.solveElast();
+	solver1.polarCoord = true;
+	solver1.saveAsVtk("../data/StroiMech/CurvedBeam1.vtk");
+
+
+	mesh.genArc(3., 4., 0.25 * pi, 0.75 * pi, 100, 5, 1);
+	mesh.printAnalysis();
+
+	double Pmax = 1e6;
+	LoadConditions load2;
+	load2.fixVertAxis(0.);
+	load2.setForce(2, [=](vec2 r) { double R = r.norm(); return vec2(Pmax * (3.5 - R) / 0.5, 0.); }, true);
+	load2.setForce(0, [=](vec2 r) { double R = r.norm(); return vec2(Pmax * (3.5 - R) / 0.5, 0.); }, true);
+
+	PlasticitySolver solver2(m, mesh, load2);
+	solver2.solveElast();
+	solver2.polarCoord = true;
+	solver2.saveAsVtk("../data/StroiMech/CurvedBeam2.vtk");
 }
 
 
@@ -1310,6 +1387,8 @@ int main() { //выбор запускаемого теста
 
 	//beamTest();
 
-	stroiMechBeam();
+	//stroiMechBeam();
+
+	testCurvedBeam();
 
 }

@@ -397,6 +397,113 @@ void Mesh::genRing(double a, double b, size_t N_phi, size_t N_r, int order) {
 }
 
 
+void Mesh::genArc(double a, double b, double phi1, double phi2, size_t N_phi, size_t N_r, int order) {
+	const double pi = 3.141'592'653'589'793;
+	const bool enhanced = true;
+	std::cout << "Mesh generation...";
+
+	double* steps = nullptr;
+	if constexpr (enhanced) {
+		//std::cout << N_r << "\n";
+		N_r = (size_t)round(N_phi * (b - a) / ((phi2 - phi1) * (a + b)));
+		//std::cout << (N_phi * (b - a) / (pi * (a + b))) << "\n\n";
+		if (order == 2)
+			N_phi *= 2; N_r *= 2;
+		steps = new double[N_r + 1];
+		double alpha = 2. / (double(N_r) * (a + b));
+		double a1 = alpha * a;
+		double h = alpha * (b - a) / double(N_r - 1);
+		for (size_t i = 0; i <= N_r; ++i)
+			steps[i] = a + (b - a) * ((2. * a1 + h * (double(i) - 1.)) * 0.5 * i);
+		//for (size_t i = 0; i <= N_r; ++i) \
+			std::cout << (steps[i] - a) / (b - a) << "\n";
+	}
+	else {
+		if (order == 2)
+			N_phi *= 2; N_r *= 2;
+		steps = new double[N_r + 1];
+		double h = (b - a) / double(N_r);
+		for (size_t i = 0; i <= N_r; ++i)
+			steps[i] = a + h * i;
+	}
+
+	delete[] borderLength;
+	for (int i = 0; i < bordersCount; ++i)
+		delete[] borders[i];
+	bordersCount = 0;
+	delete[] borders;
+
+	nodeCount = (N_r + 1) * (N_phi + 1);
+	delete[] node;
+	delete[] secOrdNodes;
+	node = new vec2[nodeCount];
+	secOrdNodes = new bool[nodeCount];
+	for (int i = 0; i < nodeCount; ++i)
+		secOrdNodes[i] = false;
+	bordersCount = 4;
+	borders = new int* [bordersCount];
+	borderLength = new int[bordersCount];
+	borderLength[0] = borderLength[2] = N_r + 1;
+	borderLength[1] = borderLength[3] = N_phi + 1;
+	for (int i = 0; i < bordersCount; ++i)
+		borders[i] = new int[borderLength[i]];
+	for (int i = 0; i <= N_r; ++i) {
+		borders[0][N_r - i] = (N_phi + 1) * (N_r + 1) - i - 1;
+		borders[2][N_r - i] = i;
+	}
+	for (int i = 0; i <= N_phi; ++i) {
+		//borders[1][i] = (N_phi - i) * (N_r + 1);
+		//borders[3][i] = (i + 1) * (N_r + 1) - 1;
+		borders[1][N_phi - i] = (i + 1) * (N_r + 1) - 1;
+		borders[3][N_phi - i] = (N_phi - i) * (N_r + 1);
+	}
+
+	double h_r = (b - a) / N_r, h_phi = (phi2 - phi1) / N_phi;
+
+	for (int j = 0; j <= N_r; ++j) {
+		for (int i = 0; i <= N_phi; ++i) {
+			//double r = b - h_r * i;
+			double r = steps[N_r - j];
+
+			double phi = phi1 + h_phi * i;
+			node[i * (N_r + 1) + j] = vec2(r * cos(phi), r * sin(phi));
+		}
+	}
+	count4 = N_r * N_phi;
+	count3 = 0;
+	count8 = 0;
+	delete[] elem3;
+	delete[] elem4;
+	delete[] elem8;
+	elem3 = nullptr;
+	elem8 = nullptr;
+	elem4 = new int[count4 * 4];
+	fillPos();
+	for (int i = 0; i < N_phi; ++i)
+		for (int j = 0; j < N_r; ++j) {
+			int k = (i * N_r) + j;
+			//int k = (j * N_r) + i;
+
+			int begin = k * 4;
+			elem4[begin] = (i + 1) * (N_r + 1) + j + 1;
+			elem4[begin + 1] = i * (N_r + 1) + j + 1;
+			elem4[begin + 2] = i * (N_r + 1) + j;
+			elem4[begin + 3] = (i + 1) * (N_r + 1) + j;
+		}
+	delete[] steps;
+
+	ramSaved = true;
+	analysed = false;
+	//useCuda = false;
+	//smoothRing(borderN);
+	if (order == 2) remapOrder(N_r);
+
+	if (useCuda) meshToGPU();
+
+	std::cout << "\rMesh generated: " << nodeCount << " nodes, " << elemCount() << " elements\n\n";
+}
+
+
 void Mesh::renumerateRing(int borderN) {
 	std::vector<int> newNodes(nodeCount);
 	int newN = 0, radN = nodeCount / borderN,
