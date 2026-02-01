@@ -11,8 +11,9 @@
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 
+#include "ptrs.h"
 #include "vec2.cuh"
-#include "GaussScheme.cuh"
+//#include "GaussScheme.cuh"
 
 
 const int BS = 1024; //Стандартный размер блока CUDA
@@ -69,11 +70,11 @@ public:
 	bool* dev_secOrdNodes = nullptr;
 
 	int bordersCount = 0;
-	int dev_bordersCount = 0;
+	//int dev_bordersCount = 0;
 	int* borderLength = nullptr;
 
 	int** borders = nullptr;
-	int** dev_borders = nullptr;
+	//int** dev_borders = nullptr;
 
 	double* spaces = nullptr;
 	double* aspects = nullptr;
@@ -159,18 +160,18 @@ public:
 				cudaMalloc((void**)&dev_elem8, 8 * count8 * sizeof(int));
 				cudaMemcpy(dev_elem8, mesh.dev_elem8, 8 * count8 * sizeof(int), cudaMemcpyDeviceToDevice);
 			}
-			dev_bordersCount = mesh.dev_bordersCount;
+			//dev_bordersCount = mesh.dev_bordersCount;
 			if (!ramSaved) {
-				borderLength = new int[dev_bordersCount];
-				memcpy(borderLength, mesh.borderLength, dev_bordersCount * sizeof(int));
+				//borderLength = new int[dev_bordersCount];
+				//memcpy(borderLength, mesh.borderLength, dev_bordersCount * sizeof(int));
 			}
 			fillPosDev();
-			dev_borders = new int*[dev_bordersCount];
+			//dev_borders = new int*[dev_bordersCount];
 			//std::cout << "log3.5\n";
-			for (int i = 0; i < dev_bordersCount; ++i) {
-				cudaMalloc((void**)&(dev_borders[i]), borderLength[i] * sizeof(int));
-				cudaMemcpy(dev_borders[i], mesh.dev_borders[i], borderLength[i] * sizeof(int), cudaMemcpyDeviceToDevice);
-			}
+			//for (int i = 0; i < dev_bordersCount; ++i) {
+			//	cudaMalloc((void**)&(dev_borders[i]), borderLength[i] * sizeof(int));
+			//	cudaMemcpy(dev_borders[i], mesh.dev_borders[i], borderLength[i] * sizeof(int), cudaMemcpyDeviceToDevice);
+			//}
 			if (analysed) {
 				cudaMalloc((void**)&dev_spaces, elemCount() * sizeof(double));
 				cudaMalloc((void**)&dev_aspects, elemCount() * sizeof(double));
@@ -201,13 +202,13 @@ public:
 			cudaFree(dev_elem3);
 			cudaFree(dev_elem4);
 			cudaFree(dev_elem8);
-			for (int i = 0; i < dev_bordersCount; ++i)
-				cudaFree(dev_borders[i]);
+			//for (int i = 0; i < dev_bordersCount; ++i)
+			//	cudaFree(dev_borders[i]);
 			cudaFree(dev_spaces);
 			cudaFree(dev_aspects);
 			cudaFree(dev_skewAngles);
 		}
-		delete[] dev_borders;
+		//delete[] dev_borders;
 
 		//TODO: null sizes and pointers
 		//TODO: delete secOrdNodes
@@ -221,11 +222,11 @@ public:
 
 	void genRectangle(double x1, double x2, double y1, double y2, size_t N1, size_t N2, int order = 1);
 
-	void genRectWithHole(double x1, double x2, double y1, double y2, double holeRad, size_t N1, size_t N2, int order = 1);
+	void genRectWithHole(double x1, double x2, double y1, double y2, double holeRad, size_t N1, size_t N2, int order = 1, int enhance = 2);
 
-	void genRing(double a, double b, size_t N_phi, size_t N_r, int order = 1);
+	void genRing(double a, double b, size_t N_phi, size_t N_r, int order = 1, int enhance = 2);
 
-	void genArc(double a, double b, double phi1, double phi2, size_t N_phi, size_t N_r, int order = 1);
+	void genArc(double a, double b, double phi1, double phi2, size_t N_phi, size_t N_r, int order = 1, int enhance = 2);
 
 	void renumerateRing(int borderN);
 

@@ -3,7 +3,7 @@
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 
-#include "Mesh.cuh"
+#include "Mesh.h"
 
 template<typename fp>
 class CudaSLAE {

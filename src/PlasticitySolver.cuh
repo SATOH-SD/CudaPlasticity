@@ -4,7 +4,8 @@
 
 #include "SymMatrix.cuh"
 #include "StaticMatrix.cuh"
-#include "Mesh.cuh"
+#include "Tensors.cuh"
+#include "Mesh.h"
 #include "LoadConditions.cuh"
 #include "SLAE_Solvers.cuh"
 #include "ConjGradCuda.cu"
@@ -12,7 +13,7 @@
 
 
 //Плоское состояние (напряжённое, деформированное)
-enum plainCondition { stress, strain };
+enum class planeCond { stress, strain };
 
 
 const int secIntPs = 3; //количество точек интегрирования по одной оси для элементов 2го порядка (TEMP)
@@ -31,7 +32,7 @@ private:
 
 	LoadConditions cond;  //Условия нагружения
 
-	plainCondition pc = stress;
+	planeCond pc = planeCond::stress;
 
 	void (*formC)(StaticMatrix<3, 3, double>&, double, double) = nullptr;
 	void (*dd_formC)(StaticMatrix<3, 3, double>&, double, double) = nullptr;
@@ -61,6 +62,11 @@ private:
 	double* dd_exx_p, * dd_eyy_p, * dd_gamma_p, * dd_intE_p;
 	double* dd_sxx, * dd_syy, * dd_tau, * dd_intensityS, * dd_tableS;
 	double* dd_psi, * dd_E_c, * dd_nu_c;
+
+	double* h = nullptr;
+
+	float* df_h = nullptr;
+	double* dd_h = nullptr;
 
 	float* df_exit = nullptr;  //Значение для критерия останова на видеокарте
 	double* dd_exit = nullptr;
@@ -117,6 +123,10 @@ private:
 	void initConditions(CudaSparseSLAE<fp>& K, fp* uv);
 
 	void calcBs();
+
+	void calcThickness();
+
+	void copyThickness();
 
 	void calcBsCuda();
 
@@ -229,7 +239,7 @@ public:
 		else return exx[0];
 	}
 
-	void setPlainCondition(plainCondition _pc);
+	void setPlaneCondition(planeCond _pc);
 
 	PlasticitySolver() = default;
 
@@ -274,7 +284,7 @@ public:
 		//mesh.meshToRAM();
 		//mesh.print();
 
-		setPlainCondition(pc);
+		setPlaneCondition(pc);
 
 		if (mesh.useCuda) {
 			cudaMalloc((void**)&dev_m, sizeof(Material));
@@ -459,6 +469,9 @@ public:
 
 	//Сохранить в файл формата .vtk для отображения результатов в ParaView
 	void saveAsVtk(const std::string& fileName);
+
+	//Сохранить в файл формата .vtu для отображения результатов в ParaView
+	void saveAsVtu(const std::string& fileName);
 
 	//TO DO: fix for elem8
 	double sigmaError(std::function<double(vec2)> s_x, std::function<double(vec2)> s_y, std::function<double(vec2)> s_xy) const {

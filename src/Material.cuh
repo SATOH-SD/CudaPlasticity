@@ -1,9 +1,11 @@
 ﻿#pragma once
 #include <functional>
-#include <nvfunctional>
+//#include <nvfunctional>
 
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
+
+#include "vec2.cuh"
 
 
 class Material {
@@ -25,6 +27,18 @@ public:
 	double rho = 1.;  //плотность вещества
 
 	double sigmaT;    //предел текучести
+
+	std::function<double(vec2)> hf = [=](vec2 r) { return 1.; };
+
+	void setThickness(double h) {
+		Material::h = h;
+		hf = [=](vec2 r) { return 1.; };
+	}
+
+	void setThickness(std::function<double(vec2)> hf) {
+		Material::hf = hf;
+		h = 0.;
+	}
 
 	void setLinearPlast(double E, double sigmaT, double K_T);
 

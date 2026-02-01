@@ -1,6 +1,6 @@
 ﻿#include <filesystem>
 
-#include "Mesh.cuh"
+#include "Mesh.h"
 
 #include "vec2.cuh"
 
@@ -109,7 +109,7 @@ void Mesh::genRectangle(double x1, double x2, double y1, double y2, size_t N1, s
 }
 
 
-void Mesh::genRectWithHole(double x1, double x2, double y1, double y2, double holeRad, size_t N1, size_t N2, int order) {
+void Mesh::genRectWithHole(double x1, double x2, double y1, double y2, double holeRad, size_t N1, size_t N2, int order, int enhance) {
 	const double pi = 3.141'592'653'589'793;
 	const bool enhanced = true;
 	std::cout << "Mesh generation...";
@@ -119,8 +119,9 @@ void Mesh::genRectWithHole(double x1, double x2, double y1, double y2, double ho
 	//std::cout << radN << "\n";
 
 	double* steps = nullptr;
-	if constexpr (enhanced) {
-		double a = holeRad * pi, b = (x2 - x1) + (y2 - y1);
+	if (enhance == 1) {
+		double a = holeRad * pi, b = ((x2 - x1) + (y2 - y1));
+		//double a = holeRad, b = sqrt((x2 - x1) * (y2 - y1)) / pi;
 		radN = (size_t)round(borderN * (b - a) / (pi * (a + b)));
 		if (order == 2) {
 			N1 *= 2; N2 *= 2;
@@ -135,7 +136,7 @@ void Mesh::genRectWithHole(double x1, double x2, double y1, double y2, double ho
 		for (size_t i = 0; i <= radN; ++i)
 			steps[i] = (2. * a1 + h * (double(i) - 1.)) * 0.5 * i;
 	}
-	else {
+	else if (enhance == 0) {
 		if (order == 2) {
 			N1 *= 2; N2 *= 2;
 			borderN *= 2;
@@ -145,6 +146,24 @@ void Mesh::genRectWithHole(double x1, double x2, double y1, double y2, double ho
 		double h = 1. / double(radN);
 		for (size_t i = 0; i <= radN; ++i)
 			steps[i] = h * i;
+	}
+	else {
+		double a = holeRad;
+		//double b = ((x2 - x1) + (y2 - y1)) / pi;
+		double b = 0.25 * (std::min((x2 - x1), (y2 - y1)) + vec2(x2 - x1, y2 - y1).norm());
+		//double b = (((x2 - x1) + (y2 - y1)) / pi + 0.5 * std::min((x2 - x1), (y2 - y1))) * 0.5;
+		//double b = 0.5 * std::min((x2 - x1), (y2 - y1));
+		radN = (size_t)round(log(b / a) / log(1. + 2. * pi / double(borderN)));
+		if (order == 2) {
+			N1 *= 2; N2 *= 2;
+			borderN *= 2;
+			radN *= 2;
+		}
+		steps = new double[radN + 1];
+		double q = pow(b / a, 1. / double(radN));
+		double coef = 1.;
+		for (size_t i = 0; i <= radN; ++i, coef *= q)
+			steps[i] = (a * coef - a) / (b - a);
 	}
 	//for (size_t i = 0; i <= radN; ++i) \
 			std::cout << steps[i] << "\n";
@@ -286,20 +305,24 @@ void Mesh::genRectWithHole(double x1, double x2, double y1, double y2, double ho
 
 
 //Сгенерировать сетку для кольца с внутренним радиусом а и внешним радиусом b
-void Mesh::genRing(double a, double b, size_t N_phi, size_t N_r, int order) {
+void Mesh::genRing(double a, double b, size_t N_phi, size_t N_r, int order, int enhance) {
 	const double pi = 3.141'592'653'589'793;
 	const bool enhanced = true;
 	std::cout << "Mesh generation...";
 
 	double* steps = nullptr;
-	if constexpr (enhanced) {
+	if (enhance == 1) {
 		//std::cout << N_r << "\n";
 		N_r = (size_t)round(N_phi * (b - a) / (pi * (a + b)));
+		//N_r = (size_t)round(N_phi * (b - a) / (2 * pi * (a + b))) + 20;
 		//std::cout << (N_phi * (b - a) / (pi * (a + b))) << "\n\n";
-		if (order == 2)
+		if (order == 2) {
 			N_phi *= 2; N_r *= 2;
+		}
+		//N_r *= 2;
 		steps = new double[N_r + 1];
 		double alpha = 2. / (double(N_r) * (a + b));
+		//double alpha = 2. * pi / (double(N_phi) * (b - a));
 		double a1 = alpha * a;
 		double h = alpha * (b - a) / double(N_r - 1);
 		for (size_t i = 0; i <= N_r; ++i)
@@ -307,13 +330,36 @@ void Mesh::genRing(double a, double b, size_t N_phi, size_t N_r, int order) {
 		//for (size_t i = 0; i <= N_r; ++i) \
 			std::cout << (steps[i] - a) / (b - a) << "\n";
 	}
-	else {
-		if (order == 2)
+	else if (enhance == 0) {
+		if (order == 2) {
 			N_phi *= 2; N_r *= 2;
+		}
 		steps = new double[N_r + 1];
 		double h = (b - a) / double(N_r);
 		for (size_t i = 0; i <= N_r; ++i)
 			steps[i] = a + h * i;
+	}
+	else {
+		//N_r = (size_t)round(log(b / a) / log(1. + 2. * (b - a) / double(N_phi)));
+		N_r = (size_t)round(log(b / a) / log(1. + 2. * pi / double(N_phi)));
+		//N_r = (size_t)round(log(b / a) / log((N_phi * (b - a) + pi *  (6. * b - 4. * a)) / (2. * pi * b + N_phi * (b - a))));
+		//std::cout << log(b / a) / log(1. + 4. * pi / double(N_phi)) << "\n";
+		//std::cout << log(b / a) / log((N_phi * (b - a) + pi * (6. * b - 4. * a)) / (2. * pi * b + N_phi * (b - a))) << "\n";
+		if (order == 2) {
+			N_phi *= 2; N_r *= 2;
+		}
+		steps = new double[N_r + 1];
+		double q = pow(b / a, 1. / double(N_r));
+		//std::cout << q << "\n";
+		double coef = 1.;
+		for (size_t i = 0; i <= N_r; ++i, coef *= q) {
+			steps[i] = a * coef;
+			//std::cout << steps[i] << "\n";
+		}
+		//for (size_t i = 0; i <= N_r; ++i) {
+			//steps[i] = (steps[i] - a) / (b - a);
+			//std::cout << steps[i] << "\n";
+		//}
 	}
 
 	delete[] borderLength;
@@ -397,34 +443,43 @@ void Mesh::genRing(double a, double b, size_t N_phi, size_t N_r, int order) {
 }
 
 
-void Mesh::genArc(double a, double b, double phi1, double phi2, size_t N_phi, size_t N_r, int order) {
+void Mesh::genArc(double a, double b, double phi1, double phi2, size_t N_phi, size_t N_r, int order, int enhance) {
 	const double pi = 3.141'592'653'589'793;
 	const bool enhanced = true;
 	std::cout << "Mesh generation...";
 
 	double* steps = nullptr;
-	if constexpr (enhanced) {
-		//std::cout << N_r << "\n";
-		N_r = (size_t)round(N_phi * (b - a) / ((phi2 - phi1) * (a + b)));
-		//std::cout << (N_phi * (b - a) / (pi * (a + b))) << "\n\n";
-		if (order == 2)
+	if (enhance == 1) {
+		N_r = (size_t)round(N_phi * (b - a) / (0.5 * (phi2 - phi1) * (a + b)));
+		if (order == 2) {
 			N_phi *= 2; N_r *= 2;
+		}
 		steps = new double[N_r + 1];
 		double alpha = 2. / (double(N_r) * (a + b));
 		double a1 = alpha * a;
 		double h = alpha * (b - a) / double(N_r - 1);
 		for (size_t i = 0; i <= N_r; ++i)
 			steps[i] = a + (b - a) * ((2. * a1 + h * (double(i) - 1.)) * 0.5 * i);
-		//for (size_t i = 0; i <= N_r; ++i) \
-			std::cout << (steps[i] - a) / (b - a) << "\n";
 	}
-	else {
-		if (order == 2)
+	else if (enhance == 0) {
+		if (order == 2) {
 			N_phi *= 2; N_r *= 2;
+		}
 		steps = new double[N_r + 1];
 		double h = (b - a) / double(N_r);
 		for (size_t i = 0; i <= N_r; ++i)
 			steps[i] = a + h * i;
+	}
+	else {
+		N_r = (size_t)round(log(b / a) / log(1. + (phi2 - phi1) / double(N_phi)));
+		if (order == 2) {
+			N_phi *= 2; N_r *= 2;
+		}
+		steps = new double[N_r + 1];
+		double q = pow(b / a, 1. / double(N_r));
+		double coef = 1.;
+		for (size_t i = 0; i <= N_r; ++i, coef *= q)
+			steps[i] = a * coef;
 	}
 
 	delete[] borderLength;
@@ -513,38 +568,15 @@ void Mesh::renumerateRing(int borderN) {
 
 	while (jBack > jFront) {
 		for (int i = 0; i < radN; ++i)
-			newNodes[(i)*borderN + (jFront)] = newN++;
-		for (int i = 0; i < radN; ++i)
-			newNodes[(i)*borderN + (jBack)] = newN++;
+			newNodes[i * borderN + jFront] = newN++;
 		++jFront;
+		for (int i = 0; i < radN; ++i)
+			newNodes[i * borderN + jBack] = newN++;
 		--jBack;
 	}
 	if (jBack == jFront)
 		for (int i = 0; i < radN; ++i)
-			newNodes[newN++] = (i)*borderN + (jFront);
-
-	/*while (jBack > jFront) {
-		for (int i = 0; i < radN; ++i) {
-			if (i % 2 == 0)
-				newNodes[(i / 2)*borderN + (jFront)] = newN++;
-			else
-				newNodes[(radN - 1 - i / 2) * borderN + (jFront)] = newN++;
-		}
-		for (int i = 0; i < radN; ++i) {
-			if (i % 2 == 0)
-				newNodes[(i / 2) * borderN + (jBack)] = newN++;
-			else
-				newNodes[(radN - 1 - i / 2) * borderN + (jBack)] = newN++;
-		}
-		++jFront;
-		--jBack;
-	}
-	if (jBack == jFront)
-		for (int i = 0; i < radN; ++i)
-			newNodes[newN++] = (i)*borderN + (jFront);*/
-
-	//for (int i = 0; i < nodeCount; ++i) \
-		std::cout << i << " " << newNodes[i] << "\n";
+			newNodes[i* borderN + jFront] = newN++;
 
 	for (int i = 0; i < count4; ++i)
 		for (int j = 4 * i; j < 4 * (i + 1); ++j)
@@ -677,7 +709,7 @@ void Mesh::remapOrder(int width) {
 	fillPos();
 }
 
-void renumSort(double* rBegin, double* rEnd, int* nBegin, double* bufferR, int* bufferN) {
+static void renumSort(double* rBegin, double* rEnd, int* nBegin, double* bufferR, int* bufferN) {
 	int dist = rEnd - rBegin;
 	//std::cout << dist << "\n";
 	if (dist != 1) {
@@ -827,13 +859,13 @@ void Mesh::meshToRAM() {
 	for (int i = 0; i < bordersCount; ++i)
 		delete[] borders[i];
 	delete[] borders;
-	bordersCount = dev_bordersCount;
+	//bordersCount = dev_bordersCount;
 	borders = new int*[bordersCount];
 	//std::clog << bordersCount << "\n";
 	for (int i = 0; i < bordersCount; ++i) {
 		//std::clog << borderLength[i] << "\n";
 		borders[i] = new int[borderLength[i]];
-		cudaMemcpy(borders[i], dev_borders[i], borderLength[i] * sizeof(int), cudaMemcpyDeviceToHost);
+		//cudaMemcpy(borders[i], dev_borders[i], borderLength[i] * sizeof(int), cudaMemcpyDeviceToHost);
 	}
 	//std::clog << "borders copied\n";
 	if (analysed) {
@@ -868,15 +900,15 @@ void Mesh::meshToGPU() {
 	cudaMemcpy(dev_elem4, elem4, 4 * count4 * sizeof(int), cudaMemcpyHostToDevice);
 	cudaMemcpy(dev_elem8, elem8, 8 * count8 * sizeof(int), cudaMemcpyHostToDevice);
 
-	for (int i = 0; i < dev_bordersCount; ++i)
-		cudaFree(dev_borders[i]);
-	delete[] dev_borders;
-	dev_bordersCount = bordersCount;
-	dev_borders = new int* [dev_bordersCount];
-	for (int i = 0; i < dev_bordersCount; ++i) {
-		cudaMalloc((void**)&(dev_borders[i]), borderLength[i] * sizeof(int));
-		cudaMemcpy(dev_borders[i], borders[i], borderLength[i] * sizeof(int), cudaMemcpyHostToDevice);
-	}
+	//for (int i = 0; i < dev_bordersCount; ++i)
+	//	cudaFree(dev_borders[i]);
+	//delete[] dev_borders;
+	//dev_bordersCount = bordersCount;
+	//dev_borders = new int* [dev_bordersCount];
+	//for (int i = 0; i < dev_bordersCount; ++i) {
+	//	cudaMalloc((void**)&(dev_borders[i]), borderLength[i] * sizeof(int));
+	//	cudaMemcpy(dev_borders[i], borders[i], borderLength[i] * sizeof(int), cudaMemcpyHostToDevice);
+	//}
 	if (analysed) {
 		cudaFree(dev_spaces);
 		cudaMalloc((void**)&dev_spaces, elemCount() * sizeof(double));
@@ -927,14 +959,10 @@ bool Mesh::loadFromFile(const std::string& fileName) {
 		cudaFree(dev_elem3); dev_elem3 = nullptr;
 		cudaFree(dev_elem4); dev_elem4 = nullptr;
 		cudaFree(dev_elem8); dev_elem8 = nullptr;
-		for (int i = 0; i < dev_bordersCount; ++i)
-			cudaFree(dev_borders[i]);
-		dev_bordersCount = 0;
 		cudaFree(dev_spaces); dev_spaces = nullptr;
 		cudaFree(dev_aspects); dev_aspects = nullptr;
 		cudaFree(dev_skewAngles); dev_skewAngles = nullptr;
 	}
-	delete[] dev_borders; dev_borders = nullptr;
 
 	std::ifstream file(fileName);
 	std::string line;

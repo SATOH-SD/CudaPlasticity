@@ -3,7 +3,7 @@
 #include <iostream>
 
 #include "StripSLAE.h"
-#include "Mesh.cuh"
+#include "Mesh.h"
 
 //Разреженная СЛАУ (CSR)
 class SparseSLAE {

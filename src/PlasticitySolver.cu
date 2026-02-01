@@ -15,16 +15,16 @@ __constant__ double GS2_d_point[2] = { -0.577'350'269'189'626, 0.577'350'269'189
 __constant__ float GS2_f_point[2] = { -0.577'350'269, 0.577'350'269 };
 //__constant__ double GS2c_coef[4] = { 1., 1. };
 
-const double GS2_point[2] = { -0.577'350'269'189'626, 0.577'350'269'189'626 };
+static const double GS2_point[2] = { -0.577'350'269'189'626, 0.577'350'269'189'626 };
 
 
 template<typename fp>
 __host__ __device__
-void calcB3(int e, StaticMatrix<2, 3, fp>* Bs, vec2* node, int* elem);
+static void calcB3(int e, StaticMatrix<2, 3, fp>* Bs, vec2* node, int* elem);
 
 template<typename fp>
 __host__ __device__
-void calcB4(const int e, StaticMatrix<2, 4, fp>* Bs, fp* detJ, const vec2* node, const int* elem) {
+static void calcB4(const int e, StaticMatrix<2, 4, fp>* Bs, fp* detJ, const vec2* node, const int* elem) {
 	const fp GS_point[2] = { -0.577'350'269'189'626, 0.577'350'269'189'626 };
 	int begin = 4 * e;
 	fp x1 = node[elem[begin]].x, y1 = node[elem[begin]].y,
@@ -65,7 +65,7 @@ void calcB4(const int e, StaticMatrix<2, 4, fp>* Bs, fp* detJ, const vec2* node,
 
 template<typename fp>
 __host__ __device__
-void calcB8(const int e, StaticMatrix<2, 8, fp>* Bs, fp* detJ, const vec2* node, const int* elem) {
+static void calcB8(const int e, StaticMatrix<2, 8, fp>* Bs, fp* detJ, const vec2* node, const int* elem) {
 	int begin = 8 * e;
 	const fp GS_point[3] = {-0.774'596'669'241'483, 0., 0.774'596'669'241'483 };
 	//const fp GS_point[4] = { -0.861136311594053, -0.3399810435848563, 0.3399810435848563, 0.861136311594053 };
@@ -134,28 +134,28 @@ void calcB8(const int e, StaticMatrix<2, 8, fp>* Bs, fp* detJ, const vec2* node,
 }
 
 template<typename fp>
-__global__ void calcBs3(StaticMatrix<2, 3, fp>* Bs, const vec2* node, const int* elem, const int count);
+__global__ static void calcBs3(StaticMatrix<2, 3, fp>* Bs, const vec2* node, const int* elem, const int count);
 
 template<typename fp>
-__global__ void calcBs4(StaticMatrix<2, 4, fp>* Bs, fp* detJ, const vec2* node, const int* elem, const int count) {
+__global__ static void calcBs4(StaticMatrix<2, 4, fp>* Bs, fp* detJ, const vec2* node, const int* elem, const int count) {
 	int e = blockIdx.x * blockDim.x + threadIdx.x;
 	if (e < count)
 		calcB4<fp>(e, Bs, detJ, node, elem);
 }
 
 template<typename fp>
-__global__ void calcBs8(StaticMatrix<2, 8, fp>* Bs, fp* detJ, const vec2* node, const int* elem, const int count) {
+__global__ static void calcBs8(StaticMatrix<2, 8, fp>* Bs, fp* detJ, const vec2* node, const int* elem, const int count) {
 	int e = blockIdx.x * blockDim.x + threadIdx.x;
 	if (e < count)
 		calcB8<fp>(e, Bs, detJ, node, elem);
 }
 
 __host__ __device__
-inline void formKe3(SymMatrix<6, double>& Ke, const int e, const StaticMatrix<2, 3, double>* Bs, const StaticMatrix<3, 3, double>& C, const double h);
+static inline void formKe3(SymMatrix<6, double>& Ke, const int e, const StaticMatrix<2, 3, double>* Bs, const StaticMatrix<3, 3, double>& C, const double h);
 
 template<typename fp>
 __host__ __device__
-inline void formKe4(SymMatrix<8, fp>& Ke, const int e, const StaticMatrix<2, 4, fp>* Bs, const fp* detJ, const StaticMatrix<3, 3, fp>& C, const fp h) {
+static inline void formKe4(SymMatrix<8, fp>& Ke, const int e, const StaticMatrix<2, 4, fp>* Bs, const fp* detJ, const StaticMatrix<3, 3, fp>& C, const fp h) {
 	for (int k = 0; k < 4; ++k) {
 		const StaticMatrix<2, 4, fp>& B = Bs[4 * e + k];
 		StaticMatrix<2, 3, fp> BC;
@@ -187,7 +187,41 @@ inline void formKe4(SymMatrix<8, fp>& Ke, const int e, const StaticMatrix<2, 4, 
 
 template<typename fp>
 __host__ __device__
-inline void formKe8(SymMatrix<16, fp>& Ke, const int e, const StaticMatrix<2, 8, fp>* Bs, const fp* detJ, const StaticMatrix<3, 3, fp>& C, const fp h) {
+static inline void formKe4(SymMatrix<8, fp>& Ke, const int e, const StaticMatrix<2, 4, fp>* Bs, const fp* detJ, const StaticMatrix<3, 3, fp>& C, const fp* h) {
+	//if (e == 0) \
+		printf("%f %f %f %f\n", h[4 * e], h[4 * e + 1], h[4 * e + 2], h[4 * e + 3]);
+	for (int k = 0; k < 4; ++k) {
+		const StaticMatrix<2, 4, fp>& B = Bs[4 * e + k];
+		StaticMatrix<2, 3, fp> BC;
+		const fp coef = detJ[4 * e + k] * h[4 * e + k];
+
+		for (int i = 0; i < 4; ++i) {
+			int i2 = i * 2;
+			for (int j = 0; j < 3; ++j) {
+				BC(0, j) = (B(0, i) * C(0, j) + B(1, i) * C(2, j)) * coef;
+				BC(1, j) = (B(1, i) * C(1, j) + B(0, i) * C(2, j)) * coef;
+			}
+
+			Ke(i2, i2) += BC(0, 0) * B(0, i) + BC(0, 2) * B(1, i);
+			Ke(i2 + 1, i2) += BC(1, 0) * B(0, i) + BC(1, 2) * B(1, i);
+			Ke(i2 + 1, i2 + 1) += BC(1, 1) * B(1, i) + BC(1, 2) * B(0, i);
+
+			for (int j = 0; j < i; ++j) {
+				int j2 = j * 2;
+				Ke(i2, j2) += BC(0, 0) * B(0, j) + BC(0, 2) * B(1, j);
+				Ke(i2, j2 + 1) += BC(0, 1) * B(1, j) + BC(0, 2) * B(0, j);
+				Ke(i2 + 1, j2) += BC(1, 0) * B(0, j) + BC(1, 2) * B(1, j);
+				Ke(i2 + 1, j2 + 1) += BC(1, 1) * B(1, j) + BC(1, 2) * B(0, j);
+			}
+		}
+	}
+	//if (e == 0) \
+		Ke.print();
+}
+
+template<typename fp>
+__host__ __device__
+static inline void formKe8(SymMatrix<16, fp>& Ke, const int e, const StaticMatrix<2, 8, fp>* Bs, const fp* detJ, const StaticMatrix<3, 3, fp>& C, const fp h) {
 	const fp GS_coef[3] = { 0.555'555'555'555'555, 0.888'888'888'888'888, 0.555'555'555'555'555 };
 	//const fp GS_coef[4] = { 0.3478548451374538, 0.652145154862546, 0.652145154862546, 0.3478548451374538 };
 	int begin = e * secIntPs * secIntPs;
@@ -225,7 +259,44 @@ inline void formKe8(SymMatrix<16, fp>& Ke, const int e, const StaticMatrix<2, 8,
 }
 
 template<typename fp>
-__host__ void formC_plainStress(StaticMatrix<3, 3, fp>& C, fp E, fp nu) {
+__host__ __device__
+static inline void formKe8(SymMatrix<16, fp>& Ke, const int e, const StaticMatrix<2, 8, fp>* Bs, const fp* detJ, const StaticMatrix<3, 3, fp>& C, const fp* h) {
+	const fp GS_coef[3] = { 0.555'555'555'555'555, 0.888'888'888'888'888, 0.555'555'555'555'555 };
+	//const fp GS_coef[4] = { 0.3478548451374538, 0.652145154862546, 0.652145154862546, 0.3478548451374538 };
+	int begin = e * secIntPs * secIntPs;
+	for (int ig = 0; ig < secIntPs; ++ig)
+		for (int jg = 0; jg < secIntPs; ++jg) {
+			int k = ig * secIntPs + jg;
+			const StaticMatrix<2, 8, fp>& B = Bs[begin + k];
+			StaticMatrix<2, 3, fp> BC;
+			const fp dJ = detJ[begin + k];
+			fp coef = GS_coef[ig] * GS_coef[jg] * h[begin + k];
+
+			for (int i = 0; i < 8; ++i) {
+				int i2 = i * 2;
+				for (int j = 0; j < 3; ++j) {
+					BC(0, j) = (B(0, i) * C(0, j) + B(1, i) * C(2, j)) * dJ;
+					BC(1, j) = (B(1, i) * C(1, j) + B(0, i) * C(2, j)) * dJ;
+				}
+
+				Ke(i2, i2) += (BC(0, 0) * B(0, i) + BC(0, 2) * B(1, i)) * coef;
+				Ke(i2 + 1, i2) += (BC(1, 0) * B(0, i) + BC(1, 2) * B(1, i)) * coef;
+				Ke(i2 + 1, i2 + 1) += (BC(1, 1) * B(1, i) + BC(1, 2) * B(0, i)) * coef;
+
+				for (int j = 0; j < i; ++j) {
+					int j2 = j * 2;
+					Ke(i2, j2) += (BC(0, 0) * B(0, j) + BC(0, 2) * B(1, j)) * coef;
+					Ke(i2, j2 + 1) += (BC(0, 1) * B(1, j) + BC(0, 2) * B(0, j)) * coef;
+					Ke(i2 + 1, j2) += (BC(1, 0) * B(0, j) + BC(1, 2) * B(1, j)) * coef;
+					Ke(i2 + 1, j2 + 1) += (BC(1, 1) * B(1, j) + BC(1, 2) * B(0, j)) * coef;
+				}
+			}
+		}
+	//TODO: optimize coefs mults
+}
+
+template<typename fp>
+__host__ static void formC_plainStress(StaticMatrix<3, 3, fp>& C, fp E, fp nu) {
 	//Плоское напряжённое состояние
 	C(0, 0) = C(1, 1) = 1., C(0, 1) = C(1, 0) = nu, C(2, 2) = (1.f - nu) * 0.5f;
 	fp coef = E / (1.f - nu * nu);
@@ -234,7 +305,7 @@ __host__ void formC_plainStress(StaticMatrix<3, 3, fp>& C, fp E, fp nu) {
 }
 
 template<typename fp>
-__host__ void formC_plainStrain(StaticMatrix<3, 3, fp>& C, fp E, fp nu) {
+__host__ static void formC_plainStrain(StaticMatrix<3, 3, fp>& C, fp E, fp nu) {
 	//Плоское деформированное состояние
 	C(0, 0) = C(1, 1) = 1., C(0, 1) = C(1, 0) = nu / (1. - nu), C(2, 2) = (1. - 2. * nu) * 0.5 / (1. - nu);
 	fp coef = E * (1. - nu) / ((1. + nu) * (1 - 2. * nu));
@@ -243,7 +314,7 @@ __host__ void formC_plainStrain(StaticMatrix<3, 3, fp>& C, fp E, fp nu) {
 }
 
 template<typename fp>
-__device__ void dev_formC_plainStress(StaticMatrix<3, 3, fp>& C, fp E, fp nu) {
+__device__ static void dev_formC_plainStress(StaticMatrix<3, 3, fp>& C, fp E, fp nu) {
 	//Плоское напряжённое состояние
 	C(0, 0) = C(1, 1) = 1., C(0, 1) = C(1, 0) = nu, C(2, 2) = (1.f - nu) * 0.5f;
 	fp coef = E / (1.f - nu * nu);
@@ -252,7 +323,7 @@ __device__ void dev_formC_plainStress(StaticMatrix<3, 3, fp>& C, fp E, fp nu) {
 }
 
 template<typename fp>
-__device__ void dev_formC_plainStrain(StaticMatrix<3, 3, fp>& C, fp E, fp nu) {
+__device__ static void dev_formC_plainStrain(StaticMatrix<3, 3, fp>& C, fp E, fp nu) {
 	//Плоское деформированное состояние
 	C(0, 0) = C(1, 1) = 1., C(0, 1) = C(1, 0) = nu / (1. - nu), C(2, 2) = (1. - 2. * nu) * 0.5 / (1. - nu);
 	fp coef = E * (1. - nu) / ((1. + nu) * (1 - 2. * nu));
@@ -261,23 +332,23 @@ __device__ void dev_formC_plainStrain(StaticMatrix<3, 3, fp>& C, fp E, fp nu) {
 }
 
 template<typename fp>
-__device__ void (*ptr_stress)(StaticMatrix<3, 3, fp>&, fp, fp) = dev_formC_plainStress;
+__device__ static void (*ptr_stress)(StaticMatrix<3, 3, fp>&, fp, fp) = dev_formC_plainStress;
 
 template<typename fp>
-__device__ void (*ptr_strain)(StaticMatrix<3, 3, fp>&, fp, fp) = dev_formC_plainStrain;
+__device__ static void (*ptr_strain)(StaticMatrix<3, 3, fp>&, fp, fp) = dev_formC_plainStrain;
 
 
-void PlasticitySolver::setPlainCondition(plainCondition pc) {
+void PlasticitySolver::setPlaneCondition(planeCond pc) {
 	PlasticitySolver::pc = pc;
 	switch (pc) {
-	case stress:
+	case planeCond::stress:
 		formC = formC_plainStress;
 		if (mesh.useCuda) {
 			cudaMemcpyFromSymbol(&dd_formC, ptr_stress<double>, sizeof(ptr_stress<double>));
 			cudaMemcpyFromSymbol(&df_formC, ptr_stress<float>, sizeof(ptr_stress<float>));
 		}
 		break;
-	case strain:
+	case planeCond::strain:
 		formC = formC_plainStrain;
 		if (mesh.useCuda) {
 			cudaMemcpyFromSymbol(&dd_formC, ptr_strain<double>, sizeof(ptr_strain<double>));
@@ -296,20 +367,25 @@ double PlasticitySolver::solveElastCPU() {
 	
 	double solvingTime = -omp_get_wtime();
 
+	if (m.h == 0.)
+		calcThickness();
+
 	std::cout << "Gradients calculation...";
 	calcBs();
 
 	std::cout << "\rInitialization...       ";
 	SparseSLAE spK(mesh, 2);
 	initConditions(spK);
-	ConjGradSolver cjs(spK);
+	//ConjGradSolver cjs(spK);
+	CGV2 cjs(spK, uv.data(), kinMask);
 	
 	std::cout << "\rMatrix forming...";
 	fillGlobalStiffness(K, spK);
 	
 	std::cout << "\rSLAE solving...   ";
 	size_t insideIter = 0;
-	cjs.solve(uv.data(), kinMask, insideIter, 1e-7);
+	//cjs.solve(uv.data(), kinMask, insideIter, 1e-7);
+	cjs.solve(insideIter, 1e-7);
 
 	std::cout << "\rStress calculation...";
 	updateParameters();
@@ -319,6 +395,10 @@ double PlasticitySolver::solveElastCPU() {
 		<< "\nSLAE iterations: " << insideIter \
 		<< "\nTime: " << solvingTime << " s" << std::endl;
 	plastSolved = false;
+
+	delete[] h;
+	h = nullptr;
+
 	return solvingTime;
 }
 
@@ -332,30 +412,34 @@ double PlasticitySolver::solveCPU() {
 
 	double solvingTime = -omp_get_wtime();
 
+	if (m.h == 0.)
+		calcThickness();
 	calcBs();
 	
 	SparseSLAE spK(mesh, 2);
 	initConditions(spK);
 
-	ConjGradSolver cjs(spK);
-	//BiCGStabSolver bcjs(spK);
-	//PolakRibSolver prs(spK);
+	//ConjGradSolver cjs(spK);
+
+	//ConjGradSolver3 cjs(spK, uv.data());
+	//PCG cjs(spK, uv.data(), kinMask);
+	CGV2 cjs(spK, uv.data(), kinMask);
 	
 	size_t iterNum = 0;
 	double relErr = 0.;
 	do {
 		fillGlobalStiffness(K, spK);
+		//cjs.precond();
 		
 		size_t insideIter = 0;
-		cjs.solve(uv.data(), kinMask, insideIter, 1e-7);
-		//bcjs.solve(uv.data(), kinMask, insideIter, 1e-7);
-		//prs.solve(uv.data(), kinMask, insideIter, 1e-7);
-
+		//cjs.solve2(uv.data(), kinMask, insideIter, 1e-7);
+		cjs.solve2(insideIter, 1e-7);
+		
 		updateParameters(iterNum);
 		relErr = exitCondition();
 		printIter(iterNum, insideIter, relErr);
 		++iterNum;
-		if (iterNum >= 50) break;
+		//if (iterNum >= 50) break;
 	} while (relErr > 1e-5);
 	calcPlastDeform();
 	solvingTime += omp_get_wtime();
@@ -363,18 +447,22 @@ double PlasticitySolver::solveCPU() {
 		<< "\nExit error: " << exitCondition() \
 		<< "\nTime: " << solvingTime << " s" << std::endl;
 	plastSolved = true;
+
+	delete[] h;
+	h = nullptr;
+
 	return solvingTime;
 }
 
 template<typename fp>
-__global__ void initPlastDouble(fp* psi, fp* E_c, fp* nu_c, double E, double nu) {
+__global__ static void initPlastDouble(fp* psi, fp* E_c, fp* nu_c, double E, double nu) {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
 	psi[i] = (fp)1.;
 	E_c[i] = (fp)E;
 	nu_c[i] = (fp)nu;
 }
 
-__global__ void initParams(double* psi, double* E_c, double* nu_c, double E, double nu, double* intS, double* tableS) {
+__global__ static void initParams(double* psi, double* E_c, double* nu_c, double E, double nu, double* intS, double* tableS) {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
 	psi[i] = 1.;
 	E_c[i] = E;
@@ -431,6 +519,10 @@ double PlasticitySolver::solveElastCUDA() {
 
 	double solvingTime = -omp_get_wtime();
 
+	if (m.h == 0.) {
+		calcThickness();
+		copyThickness();
+	}
 	std::cout << "Gradients calculation...";
 	calcBsCuda();
 
@@ -441,7 +533,13 @@ double PlasticitySolver::solveElastCUDA() {
 	//std::clog << "log2\n";
 	initConditions_(spK, dd_uv);
 	//std::clog << "log3\n";
-	ConjGradCuda<double> cjc(spK);
+	//
+	//ConjGradCuda2<double> cjc(spK);
+	//ConjGradCudaGW<double> cjc(spK, dd_uv, dev_kinNodes);
+	ConjGradCudaV2<double> cjc(spK, dd_uv, dev_kinNodes);
+
+	//delete[] h;
+	//h = nullptr;
 	
 	std::cout << "\rMatrix forming...";
 	fillGlobalStiffness(K, spK);
@@ -463,6 +561,10 @@ double PlasticitySolver::solveElastCUDA() {
 		<< "\nSLAE iterations: " << insideIter \
 		<< "\nTime: " << solvingTime << " s" << std::endl;
 	plastSolved = false;
+
+	cudaFree(dd_h);
+	dd_h = nullptr;
+
 	return solvingTime;
 }
 
@@ -476,14 +578,23 @@ double PlasticitySolver::solveCUDA() {
 
 	double solvingTime = -omp_get_wtime();
 
+	if (m.h == 0.) {
+		calcThickness();
+		copyThickness();
+	}
 	calcBsCuda();
 	initPlastParams();
 
 	CudaSparseSLAE<double> spK(mesh, 2);
 	initConditions_(spK, dd_uv);
 	
+	delete[] h;
+	h = nullptr;
 
-	ConjGradCuda<double> cjc(spK);
+	//ConjGradCuda<double> cjc(spK);
+	//ConjGradCuda2<double> cjc(spK);
+	//ConjGradCudaGW<double> cjc(spK, dd_uv, dev_kinNodes);
+	ConjGradCudaV2<double> cjc(spK, dd_uv, dev_kinNodes);
 
 	size_t iterNum = 0;
 	double relErr = 0.;
@@ -509,11 +620,15 @@ double PlasticitySolver::solveCUDA() {
 		<< "\nExit error: " << relErr \
 		<< "\nTime: " << solvingTime << " s" << std::endl;
 	plastSolved = true;
+
+	cudaFree(dd_h);
+	dd_h = nullptr;
+
 	return solvingTime;
 }
 
 template<int size>
-__global__ void copyB(StaticMatrix<2, size, float>* B_f, StaticMatrix<2, size, double>* B, int count) {
+__global__ static void copyB(StaticMatrix<2, size, float>* B_f, StaticMatrix<2, size, double>* B, int count) {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
 	if (i < count)
 #pragma unroll
@@ -523,7 +638,7 @@ __global__ void copyB(StaticMatrix<2, size, float>* B_f, StaticMatrix<2, size, d
 		B_f[i].print();
 }
 
-__global__ void copyJ(float* detJ_f, double* detJ, int count, const int points) {
+__global__ static void copyJ(float* detJ_f, double* detJ, int count, const int points) {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
 	if (i < count)
 #pragma unroll
@@ -547,7 +662,7 @@ void PlasticitySolver::copyBs() {
 	cudaDeviceSynchronize();
 }
 
-__global__ void copyCond(float* rp_f, double* rp, float* uv_f, double* uv) {
+__global__ static void copyCond(float* rp_f, double* rp, float* uv_f, double* uv) {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
 	rp_f[i] = (float)rp[i];
 	uv_f[i] = (float)uv[i];
@@ -557,7 +672,7 @@ void PlasticitySolver::copyConditions(float* rp_f, double* rp, int memLen) {
 	copyCond<<<memLen / BS, BS>>>(rp_f, rp, df_uv, dd_uv);
 }
 
-void copySpK(CudaSparseSLAE<float>& f, CudaSparseSLAE<double>& d) {
+void static copySpK(CudaSparseSLAE<float>& f, CudaSparseSLAE<double>& d) {
 	/*int N = 0; //размер СЛАУ
 	int memLen = 0;
 	int dim = 1;
@@ -586,7 +701,7 @@ void copySpK(CudaSparseSLAE<float>& f, CudaSparseSLAE<double>& d) {
 	//cudaMemcpy(f.adj, d.adj, dataSize / (f.dim * f.dim) * sizeof(int), cudaMemcpyDeviceToDevice);
 }
 
-__global__ void copyElemData(int count, \
+__global__ static void copyElemData(int count, \
 	float* exx_f, float* eyy_f, float* gamma_f, float* intE_f, \
 	float* sxx_f, float* syy_f, float* tau_f, float* intS_f, float* tableS_f, \
 	float* E_c_f, float* nu_c_f, float* psi_f, \
@@ -611,7 +726,7 @@ __global__ void copyElemData(int count, \
 	}
 }
 
-__global__ void copyUv(float* uv_f, double* uv, bool* kinNodes) {
+__global__ static void copyUv(float* uv_f, double* uv, bool* kinNodes) {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
 	if (kinNodes[i])
 		uv[i] = (double)uv_f[i];
@@ -639,9 +754,11 @@ double PlasticitySolver::solveCUDA_FD() {
 	double solvingTime = -omp_get_wtime();
 
 	//std::cout << "Initialization...";
-
+	if (m.h == 0.) {
+		calcThickness();
+		copyThickness();
+	}
 	calcBsCuda();
-	//TO DO: copy Bs to float (done?)
 	copyBs();
 	initPlastParamsFloat();
 
@@ -654,7 +771,12 @@ double PlasticitySolver::solveCUDA_FD() {
 	initConditions_(spK, dd_uv);
 	copyConditions(spK_f.rp, spK.rp, spK.memLen);
 
-	ConjGradCuda<float> cjc_f(spK_f);
+	delete[] h;
+	h = nullptr;
+
+	//ConjGradCuda<float> cjc_f(spK_f);
+	//ConjGradCudaGW<float> cjc_f(spK_f, df_uv, dev_kinNodes);
+	ConjGradCudaV2<float> cjc_f(spK_f, df_uv, dev_kinNodes);
 
 	size_t iterNum = 0;
 	float relErr_f = 0.f;
@@ -664,7 +786,7 @@ double PlasticitySolver::solveCUDA_FD() {
 		//std::cout << "hash " << spK_f.matrixHash() << " " << spK_f.rpHash() << "\n";
 
 		size_t insideIter = 0;
-		cjc_f.solve(df_uv, dev_kinNodes, insideIter, 1e-4f);
+		cjc_f.solve(df_uv, dev_kinNodes, insideIter, 2e-4f);
 
 		updateParamFloat();//TO DO (done?)
 		relErr_f = exitCondition(df_intensityS, df_tableS, df_exit);
@@ -680,8 +802,13 @@ double PlasticitySolver::solveCUDA_FD() {
 	//TO DO: copy ALL data
 	copyFloatToDouble(spK.memLen);
 
-	cjc_f.~ConjGradCuda();
-	ConjGradCuda<double> cjc(spK);
+	//cjc_f.~ConjGradCuda();
+	//ConjGradCuda<double> cjc(spK);
+
+	//cjc_f.~ConjGradCudaGW();
+	//cjc_f.~ConjGradCudaV2();
+	//ConjGradCudaGW<double> cjc(spK, dd_uv, dev_kinNodes);
+	ConjGradCudaV2<double> cjc(spK, dd_uv, dev_kinNodes);
 
 	double relErr = 0.;
 	do {
@@ -705,6 +832,12 @@ double PlasticitySolver::solveCUDA_FD() {
 		<< "\nExit error: " << relErr \
 		<< "\nTime: " << solvingTime << " s" << std::endl;
 	plastSolved = true;
+
+	cudaFree(dd_h);
+	cudaFree(df_h);
+	dd_h = nullptr;
+	df_h = nullptr;
+
 	return solvingTime;
 }
 
@@ -786,28 +919,54 @@ void PlasticitySolver::distribKe8(StripSLAE& K, const SymMatrix<16, double>& Ke,
 
 void PlasticitySolver::fillGlobalStiffness(StripSLAE& K, SparseSLAE& spK) {
 	spK.clearStrip(K);
-	//цикл по элементам
-	//formKe3
+	if (m.h != 0.) {
+		//цикл по элементам
+		//formKe3
 #pragma omp parallel for
-	for (int e = mesh.elemPos[0]; e < mesh.elemPos[1]; ++e) {
-		StaticMatrix<3, 3, double> Ce;
-		//formC_(Ce, E_c[e], nu_c[e]);
-		(*formC)(Ce, E_c[e], nu_c[e]);
-		SymMatrix<8, double> Ke;
-		memcpy(C + e, &Ce, sizeof(Ce));
-		formKe4(Ke, e - mesh.elemPos[0], B4, detJ4, Ce, m.h);
-		distribKe4(K, Ke, e);
-	}
+		for (int e = mesh.elemPos[0]; e < mesh.elemPos[1]; ++e) {
+			StaticMatrix<3, 3, double> Ce;
+			//formC_(Ce, E_c[e], nu_c[e]);
+			(*formC)(Ce, E_c[e], nu_c[e]);
+			SymMatrix<8, double> Ke;
+			memcpy(C + e, &Ce, sizeof(Ce));
+			formKe4(Ke, e - mesh.elemPos[0], B4, detJ4, Ce, m.h);
+			distribKe4(K, Ke, e);
+		}
 #pragma omp parallel for
-	for (int e = mesh.elemPos[1]; e < mesh.elemPos[2]; ++e) {
-		StaticMatrix<3, 3, double> Ce;
-		(*formC)(Ce, E_c[e], nu_c[e]);
-		memcpy(C + e, &Ce, sizeof(Ce));
-		SymMatrix<16, double> Ke;
-		formKe8(Ke, e - mesh.elemPos[1], B8, detJ8, Ce, m.h);
-		distribKe8(K, Ke, e);
+		for (int e = mesh.elemPos[1]; e < mesh.elemPos[2]; ++e) {
+			StaticMatrix<3, 3, double> Ce;
+			(*formC)(Ce, E_c[e], nu_c[e]);
+			memcpy(C + e, &Ce, sizeof(Ce));
+			SymMatrix<16, double> Ke;
+			formKe8(Ke, e - mesh.elemPos[1], B8, detJ8, Ce, m.h);
+			distribKe8(K, Ke, e);
+		}
+		spK.copy(K);
 	}
-	spK.copy(K);
+	else {
+		//цикл по элементам
+		//formKe3
+#pragma omp parallel for
+		for (int e = mesh.elemPos[0]; e < mesh.elemPos[1]; ++e) {
+			StaticMatrix<3, 3, double> Ce;
+			//formC_(Ce, E_c[e], nu_c[e]);
+			(*formC)(Ce, E_c[e], nu_c[e]);
+			SymMatrix<8, double> Ke;
+			memcpy(C + e, &Ce, sizeof(Ce));
+			formKe4(Ke, e - mesh.elemPos[0], B4, detJ4, Ce, h);
+			distribKe4(K, Ke, e);
+		}
+#pragma omp parallel for
+		for (int e = mesh.elemPos[1]; e < mesh.elemPos[2]; ++e) {
+			StaticMatrix<3, 3, double> Ce;
+			(*formC)(Ce, E_c[e], nu_c[e]);
+			memcpy(C + e, &Ce, sizeof(Ce));
+			SymMatrix<16, double> Ke;
+			formKe8(Ke, e - mesh.elemPos[1], B8, detJ8, Ce, h);
+			distribKe8(K, Ke, e);
+		}
+		spK.copy(K);
+	}
 }
 
 void PlasticitySolver::initConditions(SparseSLAE& K) {
@@ -897,35 +1056,52 @@ void PlasticitySolver::initConditions(SparseSLAE& K) {
 			}
 		}
 	}
-	if (cond.Rset) {
+	if (cond.Rset) {  //TODO: переделать учёт толщины
 		for (int e = 0; e < mesh.count4; ++e) {  //объёмные силы для 4-узловых элементов
 			double space = mesh.elemSpace4(e);
-			double coef = 0.25 * m.rho * m.h * space;
+			double he = 0.; //толщина элемента
+			if (m.h != 0)
+				he = m.h;
+			else {
+				int begin = mesh.count3 + 4 * e;
+				he = 0.25 * (h[begin] + h[begin + 1] + h[begin + 2] + h[begin + 3]);
+			}
+			double coef = 0.25 * m.rho * he * space;
 			for (int i = 4 * e; i < 4 * (e + 1); ++i) {
-				int gi = 2 * mesh.elem4[i];
+				int gi = mesh.elem4[i];
 				vec2 node = mesh.node[gi];
 				vec2 R = cond.R(node);
-				K.rp[gi] += coef * R.x;
-				K.rp[gi + 1] += coef * R.y;
+				K.rp[2 * gi] += coef * R.x;
+				K.rp[2 * gi + 1] += coef * R.y;
 			}
 		}
 		for (int e = 0; e < mesh.count8; ++e) {  //объёмные силы для 8-узловых элементов
 			double space = mesh.elemSpace8(e);
-			double coef1 = -m.rho * m.h * space / 12.;
-			double coef2 = m.rho * m.h * space / 3.;
+			double he = 0.; //толщина элемента
+			if (m.h != 0)
+				he = m.h;
+			else {
+				int begin = mesh.count3 + 4 * mesh.count4 + secIntPs2 * e;
+				he = 0.;
+				for (int k = 0; k < secIntPs2; ++k)
+					he += h[begin + k];
+				he *= 0.125;
+			}
+			double coef1 = -m.rho * he * space / 12.;
+			double coef2 = m.rho * he * space / 3.;
 			for (int i = 8 * e; i < 8 * e + 4; ++i) {
-				int gi = 2 * mesh.elem8[i];
+				int gi = mesh.elem8[i];
 				vec2 node = mesh.node[gi];
 				vec2 R = cond.R(node);
-				K.rp[gi] += coef1 * R.x;
-				K.rp[gi + 1] += coef1 * R.y;
+				K.rp[2 * gi] += coef1 * R.x;
+				K.rp[2 * gi + 1] += coef1 * R.y;
 			}
 			for (int i = 8 * e + 4; i < 8 * (e + 1); ++i) {
-				int gi = 2 * mesh.elem8[i];
+				int gi = mesh.elem8[i];
 				vec2 node = mesh.node[gi];
 				vec2 R = cond.R(node);
-				K.rp[gi] += coef2 * R.x;
-				K.rp[gi + 1] += coef2 * R.y;
+				K.rp[2 * gi] += coef2 * R.x;
+				K.rp[2 * gi + 1] += coef2 * R.y;
 			}
 		}
 	}
@@ -1005,6 +1181,7 @@ void PlasticitySolver::initConditions(SparseSLAE& K) {
 	}
 }
 
+//TODO: совместить с процессорной функцией
 template<typename fp>
 void PlasticitySolver::initConditions_(CudaSparseSLAE<fp>& K, fp* uv) {
 	//uv.resize(2 * mesh.nodeCount, 0.);
@@ -1104,35 +1281,52 @@ void PlasticitySolver::initConditions_(CudaSparseSLAE<fp>& K, fp* uv) {
 			}
 		}
 	}
-	if (cond.Rset) {
+	if (cond.Rset) {  //TODO: переделать учёт толщины
 		for (int e = 0; e < mesh.count4; ++e) {  //объёмные силы для 4-узловых элементов
 			double space = mesh.elemSpace4(e);
-			double coef = 0.25 * m.rho * m.h * space;
+			double he = 0.; //толщина элемента
+			if (m.h != 0)
+				he = m.h;
+			else {
+				int begin = mesh.count3 + 4 * e;
+				he = 0.25 * (h[begin] + h[begin + 1] + h[begin + 2] + h[begin + 3]);
+			}
+			double coef = 0.25 * m.rho * he * space;
 			for (int i = 4 * e; i < 4 * (e + 1); ++i) {
-				int gi = 2 * mesh.elem4[i];
+				int gi = mesh.elem4[i];
 				vec2 node = mesh.node[gi];
 				vec2 R = cond.R(node);
-				rp[gi] += coef * R.x;
-				rp[gi + 1] += coef * R.y;
+				rp[2 * gi] += coef * R.x;
+				rp[2 * gi + 1] += coef * R.y;
 			}
 		}
 		for (int e = 0; e < mesh.count8; ++e) {  //объёмные силы для 8-узловых элементов
 			double space = mesh.elemSpace8(e);
-			double coef1 = -m.rho * m.h * space / 12.;
-			double coef2 = m.rho * m.h * space / 3.;
+			double he = 0.; //толщина элемента
+			if (m.h != 0)
+				he = m.h;
+			else {
+				int begin = mesh.count3 + 4 * mesh.count4 + secIntPs2 * e;
+				he = 0.;
+				for (int k = 0; k < secIntPs2; ++k)
+					he += h[begin + k];
+				he *= 0.125;
+			}
+			double coef1 = -m.rho * he * space / 12.;
+			double coef2 = m.rho * he * space / 3.;
 			for (int i = 8 * e; i < 8 * e + 4; ++i) {
-				int gi = 2 * mesh.elem8[i];
+				int gi = mesh.elem8[i];
 				vec2 node = mesh.node[gi];
 				vec2 R = cond.R(node);
-				rp[gi] += coef1 * R.x;
-				rp[gi + 1] += coef1 * R.y;
+				rp[2 * gi] += coef1 * R.x;
+				rp[2 * gi + 1] += coef1 * R.y;
 			}
 			for (int i = 8 * e + 4; i < 8 * (e + 1); ++i) {
-				int gi = 2 * mesh.elem8[i];
+				int gi = mesh.elem8[i];
 				vec2 node = mesh.node[gi];
 				vec2 R = cond.R(node);
-				rp[gi] += coef2 * R.x;
-				rp[gi + 1] += coef2 * R.y;
+				rp[2 * gi] += coef2 * R.x;
+				rp[2 * gi + 1] += coef2 * R.y;
 			}
 		}
 	}
@@ -1244,6 +1438,80 @@ void PlasticitySolver::calcBsCuda() {
 	if (mesh.count8)
 		calcBs8<<<(mesh.count8 + locBS - 1) / locBS, locBS>>>(dd_B8, dd_detJ8, mesh.dev_node, mesh.dev_elem8, mesh.count8);
 	cudaDeviceSynchronize();
+}
+
+
+void PlasticitySolver::calcThickness() {
+	int dataSize = mesh.count3 + mesh.count4 * 4 + mesh.count8 * secIntPs2;
+	h = new double[dataSize];
+	const double GS_point2[2] = { -0.577'350'269'189'626, 0.577'350'269'189'626 };
+	const double GS_point3[3] = { -0.774'596'669'241'483, 0., 0.774'596'669'241'483 };
+
+#pragma omp parallel for
+	for (int e = 0; e < mesh.count4; ++e) {
+		int begin = 4 * e;
+		double he[4] = {};
+		for (int k = 0; k < 4; ++k)
+			he[k] = m.hf(mesh.node[mesh.elem4[begin + k]]);
+
+		begin = 4 * e + mesh.count3;
+		for (int i = 0; i < 2; ++i)
+			for (int j = 0; j < 2; ++j) {
+				int k = 2 * i + j;
+				double r = GS_point2[i], s = GS_point2[j];
+				h[begin + k] = 0.25 * (\
+					(1. + r) * (1. + s) * he[0] + (1. - r) * (1. + s) * he[1] + \
+					(1. - r) * (1. - s) * he[2] + (1. + r) * (1. - s) * he[3]);
+			}
+	}
+#pragma omp parallel for
+	for (int e = 0; e < mesh.count8; ++e) {
+		int begin = 8 * e;
+		double he[8] = {};
+		for (int k = 0; k < 8; ++k)
+			he[k] = m.hf(mesh.node[mesh.elem4[begin + k]]);
+
+		begin = secIntPs2 * e + 4 * mesh.count4 + mesh.count3;
+		for (int i = 0; i < secIntPs; ++i)
+			for (int j = 0; j < secIntPs; ++j) {
+				int k = secIntPs * i + j;
+				double r = GS_point3[i], s = GS_point3[j];
+				h[begin + k] = 0.25 * (\
+						(1. + r) * (1. + s) * (r + s - 1.) * he[0] \
+						- (1. - r) * (1. + s) * (r - s + 1.) * he[1] \
+						- (1. - r) * (1. - s) * (r + s + 1.) * he[2] \
+						+ (1. + r) * (1. - s) * (r - s - 1.) * he[3] \
+					) + 0.5 * ( \
+						(1. - r * r) * (1. + s) * he[4] + \
+						(1. - r) * (1. - s * s) * he[5] + \
+						(1. - r * r) * (1. - s) * he[6] + \
+						(1. + r) * (1. - s * s) * he[7]
+					);
+			}
+	}
+	//DEBUG
+	/*std::cout << "\n";
+	for (int i = 0; i < dataSize; ++i) {
+		std::cout << h[i] << " ";
+	}
+	std::cout << "\n";*/
+}
+
+__global__ static void copyThicknessToFloat(double* dh, float* fh, int dataSize) {
+	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	if (i < dataSize)
+		fh[i] = (float)dh[i];
+}
+
+void PlasticitySolver::copyThickness() {
+	int dataSize = mesh.count3 + mesh.count4 * 4 + mesh.count8 * secIntPs2;
+	cudaMalloc((void**)&dd_h, dataSize * sizeof(double));
+	cudaMemcpy(dd_h, h, dataSize * sizeof(double), cudaMemcpyHostToDevice);
+	if (floatBoost) {
+		cudaMalloc((void**)&df_h, dataSize * sizeof(double));
+		copyThicknessToFloat<<<(dataSize + 1023) / 1024, 1024>>>(dd_h, df_h, dataSize);
+		cudaDeviceSynchronize();
+	}
 }
 
 
@@ -1369,14 +1637,14 @@ void PlasticitySolver::calcPlastDeform() {
 }
 
 __host__ __device__
-inline int strip(int i, int j, int W) {
+static inline int strip(int i, int j, int W) {
 	/*if (j > i + W || j < i - W)
 		printf("!!! %d %d\n", i, j);*/
 	return i * (2 * W + 1) + j + W - i;
 }
 
 template<typename fp>
-__global__ void insertKe4(fp* K, int W, StaticMatrix<2, 4, fp>* Bs, fp* detJ, int* elem, fp* E_c, fp* nu_c, fp h, int count) {
+__global__ static void insertKe4(fp* K, int W, StaticMatrix<2, 4, fp>* Bs, fp* detJ, int* elem, fp* E_c, fp* nu_c, fp h, int count) {
 	int e = blockIdx.x * blockDim.x + threadIdx.x;
 	if (e >= count) return;
 
@@ -1411,7 +1679,7 @@ __global__ void insertKe4(fp* K, int W, StaticMatrix<2, 4, fp>* Bs, fp* detJ, in
 }
 
 template<typename fp>
-__global__ void insertKe4(fp* K, int W, StaticMatrix<3, 3, fp>* C, void (*formC)(StaticMatrix<3, 3, fp>&, fp, fp), SymMatrix<8, fp>* Ke4, \
+__global__ static void insertKe4(fp* K, int W, StaticMatrix<3, 3, fp>* C, void (*formC)(StaticMatrix<3, 3, fp>&, fp, fp), SymMatrix<8, fp>* Ke4, \
 	StaticMatrix<2, 4, fp>* Bs, fp* detJ, int* elem, fp* E_c, fp* nu_c, fp h, int count, int elemPos) {
 	int e = blockIdx.x * blockDim.x + threadIdx.x;
 	if (e >= count) return;
@@ -1451,7 +1719,47 @@ __global__ void insertKe4(fp* K, int W, StaticMatrix<3, 3, fp>* C, void (*formC)
 }
 
 template<typename fp>
-__global__ void insertKe8(fp* K, int W, StaticMatrix<3, 3, fp>* C, void (*formC)(StaticMatrix<3, 3, fp>&, fp, fp), SymMatrix<16, fp>* Ke8, \
+__global__ static void insertKe4(fp* K, int W, StaticMatrix<3, 3, fp>* C, void (*formC)(StaticMatrix<3, 3, fp>&, fp, fp), SymMatrix<8, fp>* Ke4, \
+	StaticMatrix<2, 4, fp>* Bs, fp* detJ, int* elem, fp* E_c, fp* nu_c, const fp* h, int count, int elemPos) {
+	int e = blockIdx.x * blockDim.x + threadIdx.x;
+	if (e >= count) return;
+
+	StaticMatrix<3, 3, fp> Ce;
+	(*formC)(Ce, E_c[e], nu_c[e]);
+	for (int i = 0; i < 9; ++i)
+		C[elemPos + e].data[i] = Ce.data[i];
+	SymMatrix<8, fp>& Ke = Ke4[e];
+	for (int i = 0; i < Ke.dataSize(); ++i)
+		Ke.data[i] = {};
+	formKe4(Ke, e, Bs, detJ, Ce, h);
+
+	int begin = e * 4;
+	for (int i = 0; i < 4; ++i) {
+		int gi = 2 * elem[begin + i];
+		atomicAdd(K + strip(gi, gi, W), Ke(2 * i, 2 * i));
+		atomicAdd(K + strip(gi + 1, gi, W), Ke(2 * i + 1, 2 * i));
+		atomicAdd(K + strip(gi, gi + 1, W), Ke(2 * i + 1, 2 * i));
+		atomicAdd(K + strip(gi + 1, gi + 1, W), Ke(2 * i + 1, 2 * i + 1));
+	}
+	for (int i = 0; i < 4; ++i)
+		for (int j = 0; j < i; ++j) {
+			int gi = 2 * elem[begin + i];  //глобальне индексы
+			int gj = 2 * elem[begin + j];
+
+			atomicAdd(K + strip(gi, gj, W), Ke(2 * i, 2 * j));
+			atomicAdd(K + strip(gi + 1, gj, W), Ke(2 * i + 1, 2 * j));
+			atomicAdd(K + strip(gi, gj + 1, W), Ke(2 * i, 2 * j + 1));
+			atomicAdd(K + strip(gi + 1, gj + 1, W), Ke(2 * i + 1, 2 * j + 1));
+
+			atomicAdd(K + strip(gj, gi, W), Ke(2 * i, 2 * j));
+			atomicAdd(K + strip(gj, gi + 1, W), Ke(2 * i + 1, 2 * j));
+			atomicAdd(K + strip(gj + 1, gi, W), Ke(2 * i, 2 * j + 1));
+			atomicAdd(K + strip(gj + 1, gi + 1, W), Ke(2 * i + 1, 2 * j + 1));
+		}
+}
+
+template<typename fp>
+__global__ static void insertKe8(fp* K, int W, StaticMatrix<3, 3, fp>* C, void (*formC)(StaticMatrix<3, 3, fp>&, fp, fp), SymMatrix<16, fp>* Ke8, \
 	StaticMatrix<2, 8, fp>* Bs, fp* detJ, int* elem, fp* E_c, fp* nu_c, fp h, int count, int elemPos) {
 	int e = blockIdx.x * blockDim.x + threadIdx.x;
 	if (e >= count) return;
@@ -1490,11 +1798,58 @@ __global__ void insertKe8(fp* K, int W, StaticMatrix<3, 3, fp>* C, void (*formC)
 		}
 }
 
+template<typename fp>
+__global__ static void insertKe8(fp* K, int W, StaticMatrix<3, 3, fp>* C, void (*formC)(StaticMatrix<3, 3, fp>&, fp, fp), SymMatrix<16, fp>* Ke8, \
+	StaticMatrix<2, 8, fp>* Bs, fp* detJ, int* elem, fp* E_c, fp* nu_c, const fp* h, int count, int elemPos) {
+	int e = blockIdx.x * blockDim.x + threadIdx.x;
+	if (e >= count) return;
+
+	StaticMatrix<3, 3, fp> Ce;
+	(*formC)(Ce, E_c[e], nu_c[e]);
+	for (int i = 0; i < 9; ++i)
+		C[elemPos + e].data[i] = Ce.data[i];
+	SymMatrix<16, fp>& Ke = Ke8[e];
+	for (int i = 0; i < Ke.dataSize(); ++i)
+		Ke.data[i] = {};
+	formKe8(Ke, e, Bs, detJ, Ce, h);
+
+	int begin = e * 8;
+	for (int i = 0; i < 8; ++i) {
+		int gi = 2 * elem[begin + i];
+		atomicAdd(K + strip(gi, gi, W), Ke(2 * i, 2 * i));
+		atomicAdd(K + strip(gi + 1, gi, W), Ke(2 * i + 1, 2 * i));
+		atomicAdd(K + strip(gi, gi + 1, W), Ke(2 * i + 1, 2 * i));
+		atomicAdd(K + strip(gi + 1, gi + 1, W), Ke(2 * i + 1, 2 * i + 1));
+	}
+	for (int i = 0; i < 8; ++i)
+		for (int j = 0; j < i; ++j) {
+			int gi = 2 * elem[begin + i];  //глобальне индексы
+			int gj = 2 * elem[begin + j];
+
+			atomicAdd(K + strip(gi, gj, W), Ke(2 * i, 2 * j));
+			atomicAdd(K + strip(gi + 1, gj, W), Ke(2 * i + 1, 2 * j));
+			atomicAdd(K + strip(gi, gj + 1, W), Ke(2 * i, 2 * j + 1));
+			atomicAdd(K + strip(gi + 1, gj + 1, W), Ke(2 * i + 1, 2 * j + 1));
+
+			atomicAdd(K + strip(gj, gi, W), Ke(2 * i, 2 * j));
+			atomicAdd(K + strip(gj, gi + 1, W), Ke(2 * i + 1, 2 * j));
+			atomicAdd(K + strip(gj + 1, gi, W), Ke(2 * i, 2 * j + 1));
+			atomicAdd(K + strip(gj + 1, gi + 1, W), Ke(2 * i + 1, 2 * j + 1));
+		}
+}
+
+
 void PlasticitySolver::fillGlobalStiffness(CudaSLAE<double>& K, CudaSparseSLAE<double>& spK) {
 	spK.clearStrip(K);
 	const int locBS = 1024;
-	insertKe4<double><<<(mesh.count4 + locBS - 1) / locBS, locBS>>>(K.matrix, K.W, dd_C, dd_formC, dd_Ke4, dd_B4, dd_detJ4, mesh.dev_elem4, dd_E_c, dd_nu_c, m.h, mesh.count4, mesh.elemPos[0]);
-	insertKe8<double><<<(mesh.count8 + 512 - 1) / 512, 512>>>(K.matrix, K.W, dd_C, dd_formC, dd_Ke8, dd_B8, dd_detJ8, mesh.dev_elem8, dd_E_c, dd_nu_c, m.h, mesh.count8, mesh.elemPos[1]);
+	if (m.h != 0.) {
+		insertKe4<double><<<(mesh.count4 + locBS - 1) / locBS, locBS>>>(K.matrix, K.W, dd_C, dd_formC, dd_Ke4, dd_B4, dd_detJ4, mesh.dev_elem4, dd_E_c, dd_nu_c, m.h, mesh.count4, mesh.elemPos[0]);
+		insertKe8<double><<<(mesh.count8 + 512 - 1) / 512, 512>>>(K.matrix, K.W, dd_C, dd_formC, dd_Ke8, dd_B8, dd_detJ8, mesh.dev_elem8, dd_E_c, dd_nu_c, m.h, mesh.count8, mesh.elemPos[1]);
+	}
+	else {
+		insertKe4<double><<<(mesh.count4 + locBS - 1) / locBS, locBS >>>(K.matrix, K.W, dd_C, dd_formC, dd_Ke4, dd_B4, dd_detJ4, mesh.dev_elem4, dd_E_c, dd_nu_c, dd_h, mesh.count4, mesh.elemPos[0]);
+		insertKe8<double><<<(mesh.count8 + 512 - 1) / 512, 512>>>(K.matrix, K.W, dd_C, dd_formC, dd_Ke8, dd_B8, dd_detJ8, mesh.dev_elem8, dd_E_c, dd_nu_c, dd_h, mesh.count8, mesh.elemPos[1]);
+	}
 	cudaDeviceSynchronize();
 	spK.copy(K);
 }
@@ -1502,8 +1857,14 @@ void PlasticitySolver::fillGlobalStiffness(CudaSLAE<double>& K, CudaSparseSLAE<d
 void PlasticitySolver::fillGlobalStiffness(CudaSLAE<float>& K, CudaSparseSLAE<float>& spK) {
 	spK.clearStrip(K);
 	const int locBS = 1024;
-	insertKe4<float><<<(mesh.count4 + locBS - 1) / locBS, locBS>>>(K.matrix, K.W, df_C, df_formC, df_Ke4, df_B4, df_detJ4, mesh.dev_elem4, df_E_c, df_nu_c, m.h, mesh.count4, mesh.elemPos[0]);
-	insertKe8<float><<<(mesh.count8 + locBS - 1) / locBS, locBS>>>(K.matrix, K.W, df_C, df_formC, df_Ke8, df_B8, df_detJ8, mesh.dev_elem8, df_E_c, df_nu_c, m.h, mesh.count8, mesh.elemPos[1]);
+	if (m.h != 0.) {
+		insertKe4<float><<<(mesh.count4 + locBS - 1) / locBS, locBS>>>(K.matrix, K.W, df_C, df_formC, df_Ke4, df_B4, df_detJ4, mesh.dev_elem4, df_E_c, df_nu_c, m.h, mesh.count4, mesh.elemPos[0]);
+		insertKe8<float><<<(mesh.count8 + locBS - 1) / locBS, locBS>>>(K.matrix, K.W, df_C, df_formC, df_Ke8, df_B8, df_detJ8, mesh.dev_elem8, df_E_c, df_nu_c, m.h, mesh.count8, mesh.elemPos[1]);
+	}
+	else {
+		insertKe4<float><<<(mesh.count4 + locBS - 1) / locBS, locBS>>>(K.matrix, K.W, df_C, df_formC, df_Ke4, df_B4, df_detJ4, mesh.dev_elem4, df_E_c, df_nu_c, df_h, mesh.count4, mesh.elemPos[0]);
+		insertKe8<float><<<(mesh.count8 + locBS - 1) / locBS, locBS>>>(K.matrix, K.W, df_C, df_formC, df_Ke8, df_B8, df_detJ8, mesh.dev_elem8, df_E_c, df_nu_c, df_h, mesh.count8, mesh.elemPos[1]);
+	}
 	cudaDeviceSynchronize();
 	spK.copy(K);
 }
@@ -1516,7 +1877,7 @@ void PlasticitySolver::fillGlobalStiffness(CudaSLAE<float>& K, CudaSparseSLAE<fl
 
 
 template<typename fp>
-__global__ void strain4(fp* uv, int* elem, int elemPos, int count, StaticMatrix<2, 4, fp>* Bs, \
+__global__ static void strain4(fp* uv, int* elem, int elemPos, int count, StaticMatrix<2, 4, fp>* Bs, \
 	fp* exx, fp* eyy, fp* gamma) {
 
 	int e = blockIdx.x * blockDim.x + threadIdx.x;
@@ -1550,7 +1911,7 @@ __global__ void strain4(fp* uv, int* elem, int elemPos, int count, StaticMatrix<
 }
 
 template<typename fp>
-__global__ void strain8(fp* uv, int* elem, int elemPos, int count, StaticMatrix<2, 8, fp>* Bs, \
+__global__ static void strain8(fp* uv, int* elem, int elemPos, int count, StaticMatrix<2, 8, fp>* Bs, \
 	fp* exx, fp* eyy, fp* gamma) {
 
 	const fp GS_coef[3] = { 0.555'555'555'555'555, 0.888'888'888'888'888, 0.555'555'555'555'555 };
@@ -1589,7 +1950,7 @@ __global__ void strain8(fp* uv, int* elem, int elemPos, int count, StaticMatrix<
 }
 
 template<typename fp>
-__global__ void plastStress(int count, StaticMatrix<3, 3, fp>* C, \
+__global__ static void plastStress(int count, StaticMatrix<3, 3, fp>* C, \
 	fp* exx, fp* eyy, fp* gamma, fp* intensityE, \
 	fp* sxx, fp* syy, fp* tau, fp* intensityS, fp* tableS, \
 	fp* psi, fp* E_c, fp* nu_c, Material* m) {
@@ -1639,7 +2000,7 @@ void PlasticitySolver::updateParamFloat() {
 	cudaDeviceSynchronize();
 }
 
-__global__ void plastDeform(int count, double* exx_p, double* eyy_p, double* gamma_p, double* intE_p, \
+__global__ static void plastDeform(int count, double* exx_p, double* eyy_p, double* gamma_p, double* intE_p, \
 	double* sxx, double* syy, double* tau, \
 	double* psi, double* E_c, double* nu_c, double E, double nu, double G) {
 	
@@ -1663,7 +2024,7 @@ void PlasticitySolver::calcPlastDeformCuda() {
 }
 
 template<typename fp>
-__global__ void exitNorm2(fp* intS, fp* tableS, fp* norm) {
+__global__ static void exitNorm2(fp* intS, fp* tableS, fp* norm) {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
 	int tid = threadIdx.x;
 	__shared__ fp sh_dif[BS];
@@ -1692,7 +2053,7 @@ __global__ void exitNorm2(fp* intS, fp* tableS, fp* norm) {
 }
 
 template<typename fp>
-__global__ void exitNorm2_(fp* intS, fp* tableS, fp* norm, int count) {
+__global__ static void exitNorm2_(fp* intS, fp* tableS, fp* norm, int count) {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
 	int tid = threadIdx.x;
 	__shared__ fp sh_dif[BS];
@@ -1839,6 +2200,7 @@ void PlasticitySolver::saveAsVtk(const std::string& fileName) {
 		file << "\nGamma_rphi 1 " << mesh.count4 << " float\n";
 		for (size_t i = 0; i < mesh.count4; ++i)
 			file << _rphi(i, exx, eyy, exy) << " ";
+		delete[] exy;
 	}
 	else {
 		file << "\nEps_xx 1 " << mesh.elemCount() << " float\n";
@@ -1872,6 +2234,7 @@ void PlasticitySolver::saveAsVtk(const std::string& fileName) {
 			file << "\nGamma_p_rphi 1 " << mesh.count4 << " float\n";
 			for (size_t i = 0; i < mesh.count4; ++i)
 				file << _rphi(i, exx_p, eyy_p, exy_p) << " ";
+			delete[] exy_p;
 		}
 		else {
 			file << "\nEps_p_xx 1 " << mesh.elemCount() << " float\n";
@@ -1938,12 +2301,140 @@ void PlasticitySolver::saveAsVtk(const std::string& fileName) {
 		"\nSCALARS NodeID int 1\nLOOKUP_TABLE my_table";
 	for (size_t i = 0; i < mesh.nodeCount; ++i)
 		file << "\n" << i;
-	file << "\nFIELD FieldData2 1\nDisplacement 3 " << mesh.nodeCount << " float\n";
+	file << "\nFIELD FieldData2 2\nDisplacement 3 " << mesh.nodeCount << " float\n";
 	for (size_t i = 0; i < mesh.nodeCount; ++i)
 		file << uv[2 * i] << " " << uv[2 * i + 1] << " 0 ";
+	file << "\nThickness 1 " << mesh.nodeCount << " float\n";
+	if (m.h != 0.)
+		for (size_t i = 0; i < mesh.nodeCount; ++i)
+			file << m.h << " ";
+	else
+		for (size_t i = 0; i < mesh.nodeCount; ++i)
+			file << m.hf(mesh.node[i]) << " ";
 
 	file.close();
 }
+
+
+//Сохранить в файл формата .vtu для отображения результатов в ParaView
+//TODO: add polar and nodal data, mesh quality
+void PlasticitySolver::saveAsVtu(const std::string& fileName) {
+	std::cout << "\nSaving...\n";
+	double t = -omp_get_wtime();
+
+	if (!mesh.ramSaved)
+		mesh.meshToRAM();
+	if (!ramSaved)
+		dataToRAM();
+
+	std::ofstream file(fileName, std::ios_base::out);
+
+	file << "<?xml version=\"1.0\"?>" \
+		<< "\n<VTKFile type=\"UnstructuredGrid\" version=\"0.1\" byte_order=\"LittleEndian\" header_type=\"UInt64\" >" \
+		<< "\n\t<UnstructuredGrid>" \
+		<< "\n\t\t<Piece NumberOfPoints=\"" << mesh.nodeCount << "\" NumberOfCells=\"" << mesh.elemCount() << "\">";
+
+	file << "\n\t\t\t<PointData>";  // Данные в узлах
+	// Номера узлов
+	file << "\n\t\t\t\t<DataArray type=\"UInt32\" Name=\"NodeID\" NumberOfComponents=\"1\" format=\"ascii\" >\n";
+	for (unsigned i = 0; i < mesh.nodeCount; ++i)
+		file << i << " ";
+	file << "\n\t\t\t\t</DataArray>";
+	// Перемещения
+	file << "\n\t\t\t\t<DataArray type=\"Float64\" Name=\"Displacement\" NumberOfComponents=\"3\" format=\"ascii\" >\n";
+	for (unsigned i = 0; i < mesh.nodeCount; ++i)
+		file << uv[2 * i] << " " << uv[2 * i + 1] << " 0 ";
+	file << "\n\t\t\t\t</DataArray>";
+	file << "\n\t\t\t</PointData>";
+
+	file << "\n\t\t\t<CellData>";  // Данные в элементах
+	// Номера элементов
+	file << "\n\t\t\t\t<DataArray type=\"UInt32\" Name=\"ElementID\" NumberOfComponents=\"1\" format=\"ascii\" >\n";
+	for (unsigned i = 0; i < mesh.elemCount(); ++i)
+		file << i << " ";
+	file << "\n\t\t\t\t</DataArray>";
+	// Деформации
+	file << "\n\t\t\t\t<DataArray type=\"Float64\" Name=\"Strain" << (polarCoord ? " (Cartesian)" : "") << "\" NumberOfComponents=\"4\" " \
+		<< "ComponentName0=\"XX\" ComponentName1=\"YY\" ComponentName2=\"XY\" ComponentName3=\"Intensity\"" \
+		<< " format=\"ascii\" >\n";
+	for (unsigned i = 0; i < mesh.elemCount(); ++i)
+		file << exx[i] << " " << eyy[i] << " " << 0.5 * gamma[i] << " " << intensityE[i] << " ";
+	file << "\n\t\t\t\t</DataArray>";
+	if (plastSolved) {
+		// Пластические деформации
+		file << "\n\t\t\t\t<DataArray type=\"Float64\" Name=\"Plast Strain" << (polarCoord ? " (Cartesian)" : "") << "\" NumberOfComponents=\"4\" " \
+			<< "ComponentName0=\"XX\" ComponentName1=\"YY\" ComponentName2=\"XY\" ComponentName3=\"Intensity\"" \
+			<< " format=\"ascii\" >\n";
+		for (unsigned i = 0; i < mesh.elemCount(); ++i)
+			file << exx_p[i] << " " << eyy_p[i] << " " << 0.5 * gamma_p[i] << " " << intE_p[i] << " ";
+		file << "\n\t\t\t\t</DataArray>";
+		// Параметры пластичности
+		file << "\n\t\t\t\t<DataArray type=\"Float64\" Name=\"Psi\" NumberOfComponents=\"1\" format=\"ascii\" >\n";
+		for (unsigned i = 0; i < mesh.elemCount(); ++i)
+			file << psi[i] << " ";
+		file << "\n\t\t\t\t</DataArray>";
+		file << "\n\t\t\t\t<DataArray type=\"Float64\" Name=\"E_c\" NumberOfComponents=\"1\" format=\"ascii\" >\n";
+		for (unsigned i = 0; i < mesh.elemCount(); ++i)
+			file << E_c[i] << " ";
+		file << "\n\t\t\t\t</DataArray>";
+		file << "\n\t\t\t\t<DataArray type=\"Float64\" Name=\"nu_c\" NumberOfComponents=\"1\" format=\"ascii\" >\n";
+		for (unsigned i = 0; i < mesh.elemCount(); ++i)
+			file << nu_c[i] << " ";
+		file << "\n\t\t\t\t</DataArray>";
+	}
+	// Напряжения
+	file << "\n\t\t\t\t<DataArray type=\"Float64\" Name=\"Stress" << (polarCoord ? " (Cartesian)" : "") << "\" NumberOfComponents=\"4\" " \
+		<< "ComponentName0=\"XX\" ComponentName1=\"YY\" ComponentName2=\"XY\" ComponentName3=\"Intensity\"" \
+		<< " format=\"ascii\" >\n";
+	for (unsigned i = 0; i < mesh.elemCount(); ++i)
+		file << sxx[i] << " " << syy[i] << " " << tau[i] << " " << intensityS[i] << " ";
+	file << "\n\t\t\t\t</DataArray>";
+	file << "\n\t\t\t</CellData>";
+
+	file << "\n\t\t\t<Points>";  // Узлы
+	file << "\n\t\t\t\t<DataArray type=\"Float64\" Name=\"Points\" NumberOfComponents=\"3\" format=\"ascii\" >\n";
+	for (unsigned i = 0; i < mesh.nodeCount; ++i)
+		file << mesh.node[i].x << " " << mesh.node[i].y << " 0 ";
+	file << "\n\t\t\t\t</DataArray>";
+	file << "\n\t\t\t</Points>";
+
+	file << "\n\t\t\t<Cells>";  // Элементы
+	file << "\n\t\t\t\t<DataArray type=\"UInt32\" Name=\"connectivity\" format=\"ascii\" >\n";
+	for (int i = 0; i < mesh.count3 * 3; ++i)
+		file << mesh.elem3[i] << " ";
+	for (int i = 0; i < mesh.count4 * 4; ++i)
+		file << mesh.elem4[i] << " ";
+	for (int i = 0; i < mesh.count8 * 8; ++i)
+		file << mesh.elem8[i] << " ";
+	file << "\n\t\t\t\t</DataArray>";
+	file << "\n\t\t\t\t<DataArray type=\"UInt32\" Name=\"offsets\" format=\"ascii\" >\n";
+	unsigned offset = 0;
+	for (int i = 0; i < mesh.count3; ++i)
+		file << (offset += 3) << " ";
+	for (int i = 0; i < mesh.count4; ++i)
+		file << (offset += 4) << " ";
+	for (int i = 0; i < mesh.count8; ++i)
+		file << (offset += 8) << " ";
+	file << "\n\t\t\t\t</DataArray>";
+	file << "\n\t\t\t\t<DataArray type=\"UInt32\" Name=\"types\" format=\"ascii\" >\n";
+	for (int i = 0; i < mesh.count3; ++i)
+		file << "5 ";
+	for (int i = 0; i < mesh.count4; ++i)
+		file << "9 ";
+	for (int i = 0; i < mesh.count8; ++i)
+		file << "23 ";
+	file << "\n\t\t\t\t</DataArray>";
+	file << "\n\t\t\t</Cells>";
+
+	file << "\n\t\t</Piece>";
+	file << "\n\t</UnstructuredGrid>";
+	file << "\n</VTKFile>";
+
+	file.close();
+	t += omp_get_wtime();
+	std::cout << "Solution saved in file " << fileName << " [" << t << " sec]\n";
+}
+
 
 void PlasticitySolver::saveResidualsAsVtk(const std::string& fileName, \
 	std::function<double(vec2)> u_x,

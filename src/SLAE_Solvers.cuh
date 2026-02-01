@@ -6,7 +6,7 @@
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 
-#include "Mesh.cuh"
+#include "Mesh.h"
 #include "StripSLAE.h"
 #include "SparseSLAE.h"
 #include "CudaSLAE.cu"
