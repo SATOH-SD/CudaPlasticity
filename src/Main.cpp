@@ -1,6 +1,7 @@
 ﻿#include <iostream>
 #include <vector>
 #include <thread>
+#include <cstring>
 
 #include "PlasticitySolver.cuh"
 
@@ -40,9 +41,9 @@ void solverTest() {
 //Тест решения упругости в пластине с отверстием
 void holePlateTest() {
 	Mesh mesh;
-	//mesh.useCuda = false;
-	mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 8 * 48, 8 * 32, 1, 0);
-	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 4 * 48, 4 * 32, 1, 2);
+	mesh.useCuda = false;
+	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 8 * 48, 8 * 32, 1, 0);
+	mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 4 * 48, 4 * 32, 1, 2);
 	//mesh.genRectWithHole(-1., 1., -1., 1., 0.05, 36, 36, 1, 2);
 	mesh.printAnalysis();
 	//mesh.saveAsVtk("../data/holePlateGeom.vtk");
@@ -263,7 +264,7 @@ void meshTransferTest() {
 void plasticityTest() {
 
 	Mesh mesh;
-	//mesh.useCuda = false;
+	mesh.useCuda = false;
 	mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 48, 32, 1, 1);
 	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 8 * 48, 8 * 32, 1, 0);
 	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 96 * 3, 64 * 3, 1);
@@ -303,7 +304,7 @@ void plasticityTest() {
 	//ps.floatBoost = false;
 	ps.solve();
 	ps.polarCoord = true;
-	//ps.saveAsVtk("../data/holePlatePlast.vtk");
+	ps.saveAsVtk("../data/holePlatePlast.vtk");
 	//ps.saveAsVtu("../data/holePlatePlast.vtu");
 	//std::cout << "saved\n";
 	//std::cin.get();
@@ -406,9 +407,9 @@ void speedTestAlpha() {
 }
 
 #include <array>
-#ifdef _WIN64
+#if defined(_WIN64)
 #include <intrin.h>
-#elif
+#elif defined(__linux__)
 #include <cpuid.h>
 #endif
 
@@ -446,30 +447,31 @@ std::string getProcessorName() {
 	}
 	return cpu;
 #else
-//	char CPUBrandString[0x40];
-//	unsigned int CPUInfo[4] = { 0,0,0,0 };
-//
-//	__cpuid(0x80000000, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
-//	unsigned int nExIds = CPUInfo[0];
-//
-//	memset(CPUBrandString, 0, sizeof(CPUBrandString));
-//
-//	for (unsigned int i = 0x80000000; i <= nExIds; ++i)
-//	{
-//		__cpuid(i, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
-//
-//		if (i == 0x80000002)
-//			memcpy(CPUBrandString, CPUInfo, sizeof(CPUInfo));
-//		else if (i == 0x80000003)
-//			memcpy(CPUBrandString + 16, CPUInfo, sizeof(CPUInfo));
-//		else if (i == 0x80000004)
-//			memcpy(CPUBrandString + 32, CPUInfo, sizeof(CPUInfo));
-//	}
-	//std::string cpu = CPUBrandString;
-	std::string cpu = "";
+	char CPUBrandString[0x40];
+	unsigned int CPUInfo[4] = { 0,0,0,0 };
+
+	__cpuid(0x80000000, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
+	unsigned int nExIds = CPUInfo[0];
+
+	memset(CPUBrandString, 0, sizeof(CPUBrandString));
+
+	for (unsigned int i = 0x80000000; i <= nExIds; ++i)
+	{
+		__cpuid(i, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
+
+		if (i == 0x80000002)
+			memcpy(CPUBrandString, CPUInfo, sizeof(CPUInfo));
+		else if (i == 0x80000003)
+			memcpy(CPUBrandString + 16, CPUInfo, sizeof(CPUInfo));
+		else if (i == 0x80000004)
+			memcpy(CPUBrandString + 32, CPUInfo, sizeof(CPUInfo));
+	}
+	std::string cpu = CPUBrandString;
+	//std::string cpu = "";
 	return cpu;
 #endif
 }
+
 
 void speedTest2() {
 	double S = 170e6; //растягивающая сила
@@ -522,7 +524,7 @@ void speedTest2() {
 	std::cout << "CPU    Elasticity       Plasticity\n";
 	std::cout << "1st    " << elemCount[elastCpu1 - 1] << "              " << elemCount[plastCpu1 - 1] << "\n";
 	std::cout << "2nd    " << elemCount[elastCpu2 - 1] << "              " << elemCount[plastCpu2 - 1] << "\n\n";
-	if (mesh.useCuda) {
+	if (fullTest) {
 		std::cout << "GPU    Elasticity       Plasticity         Plasticity (float boost)\n";
 		std::cout << "1st    " << elemCount[elastGpu1 - 1] << "              " << elemCount[plastGpu1 - 1] << "              " << elemCount[plastGpuF1 - 1] << "\n";
 		std::cout << "2nd    " << elemCount[elastGpu2 - 1] << "              " << elemCount[plastGpu2 - 1] << "              " << elemCount[plastGpuF2 - 1] << "\n\n";
@@ -917,6 +919,100 @@ void speedTest2() {
 	std::cin.get();
 #endif
 }
+
+
+void miniSpeedTest() {
+	double S = 170e6; //растягивающая сила
+	LoadConditions lc;
+	lc.setForce(1, vec2(S, 0.));
+	lc.setForce(3, vec2(-S, 0.));
+	lc.fixVertAxis(0.);
+	lc.fixHorAxis(0.);
+
+	double Se = 1e6; //растягивающая сила
+	LoadConditions lce;
+	lce.setForce(1, vec2(Se, 0.));
+	lce.setForce(3, vec2(-Se, 0.));
+	lce.fixVertAxis(0.);
+	lce.fixHorAxis(0.);
+
+	Material m;
+	m.h = 1.;
+	m.setLinearPlast(E_304L, s_T_304L, E_304L * 0.1);
+	m.nu = nu_304L;
+
+	const int base[2] = { 6, 4 };
+	const int scales[9] = { 4, 6, 8, 11, 16, 23, 32, 45, 64 };
+	int elemCount[9] = { 1280, 2880, 5120, 9460, 20480, 41860, 81920, 161100, 327680 };
+
+	const int tests = 9;
+	double time[tests] = {};
+
+	const std::string title = "CPU plasticity test (1st order, preconditioned, vectorized)";
+
+	Mesh mesh;
+	mesh.useCuda = false;
+
+	std::cout << "\n" << title << "\n\n";
+	for (int i = 0; i < tests; ++i) {
+		std::cout << "\n\nChilling...";
+		std::this_thread::sleep_for(std::chrono::milliseconds(1000 * (i + 1)));
+		std::cout << "\n\n" << title << " " << base[0] * scales[i] << "x" << base[1] * scales[i] << "\n";
+		mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 1, 0);
+		PlasticitySolver ps(m, mesh, lc);
+		ps.floatBoost = true;
+		switch (i) {
+		case 0: case 1: case 2: case 3: case 4: ps.iterOutput = false; break;
+		default: ps.iterOutput = true; break;
+		}
+		//time[i] = ps.solveElast();
+		time[i] = ps.solve();
+		std::cout << std::flush;
+	}
+
+	std::cout << "\n\n\nResults\n\n";
+	std::cout << "CPU: " << getProcessorName() << "\n";
+	if (mesh.useCuda) {
+		cudaDeviceProp deviceProp;
+		cudaGetDeviceProperties(&deviceProp, 0);
+		std::cout << "GPU: " << deviceProp.name << " " \
+			<< round((double)deviceProp.totalGlobalMem / 1'048'576.) << " MB\n";
+	}
+	std::cout << "\n\nElements      ";
+	for (int i = 0; i < 9; ++i) {
+		std::cout.width(9); std::cout << elemCount[i] << " ";
+	}
+	std::cout << "\n\nTime          ";
+	for (int i = 0; i < tests; ++i) {
+		std::cout.width(9); std::cout << time[i] << " ";
+	}
+	for (int i = tests; i < 9; ++i) {
+		std::cout.width(9); std::cout << "-" << " ";
+	}
+	std::cout << "\n\n" << std::endl;
+
+	std::ofstream file("MiniSpeedTest.txt", std::ios_base::app);
+	file << title;
+	file << "\nElements      ";
+	for (int i = 0; i < 9; ++i) {
+		file.width(9); file << elemCount[i] << " ";
+	}
+	file << "\nTime          ";
+	for (int i = 0; i < tests; ++i) {
+		file.width(9); file << time[i] << " ";
+	}
+	for (int i = tests; i < 9; ++i) {
+		file.width(9); file << "-" << " ";
+	}
+	file << "\n\n";
+	file.close();
+
+#ifdef _WIN64
+	std::cout << "Press ENTER to exit..." << std::flush;
+	std::cin.get();
+#endif
+}
+
 
 //Тест переменной силы на границе
 void forceFuncTest() {
@@ -1482,6 +1578,53 @@ void stroiMechKirsch() {
 }
 
 
+void pointForceTest() {
+	Mesh mesh;
+	mesh.genRectangle(-6, 6, 0, 3, 120, 30, 2);
+
+	double E = 2e11, mu = 0.3;
+	Material m;
+	m.setLinearPlast(2e11, 1e20, 2e11);
+	m.nu = mu;
+
+	LoadConditions load;
+	load.fixBorder(3);
+	load.fixBorderVert(0);
+	load.fixBorderVert(2);
+	load.setForcePoint({ 0., 3. }, { 0., -1e8 });
+
+	PlasticitySolver solver(m, mesh, load);
+	solver.setPlaneCondition(planeCond::strain);
+	solver.solveElast();
+	solver.saveAsVtk("../data/PointContact.vtk");
+}
+
+
+void testSector() {
+	const double pi = 3.141'592'653'589'793;
+
+	Mesh mesh;
+	mesh.useCuda = false;
+	mesh.genArc(0.5, 1., pi * 0.25, pi * 0.75, 100, 5);
+
+	double E = 2e11, mu = 0.3;
+	Material m;
+	m.setLinearPlast(2e11, 1e20, 2e11);
+	m.nu = mu;
+
+	LoadConditions load;
+	//load.setRotation(500);
+	load.fixAlongLine(2, 0.25 * pi);
+	load.fixAlongLine(0, 0.75 * pi);
+	load.setForce(3, { 1e6, 0. }, true);
+
+	PlasticitySolver solver(m, mesh, load);
+	solver.iterOutput = true;
+	solver.solve();
+	solver.saveAsVtu("../data/Sector.vtu");
+}
+
+
 int main() { //выбор запускаемого теста
 
 	//meshTest();
@@ -1514,7 +1657,9 @@ int main() { //выбор запускаемого теста
 
 	//speedTestAlpha();
 
-	speedTest2();
+	//speedTest2();
+
+	miniSpeedTest();
 
 	//beamTest();
 
@@ -1527,5 +1672,9 @@ int main() { //выбор запускаемого теста
 	//testDiskRotation();
 
 	//stroiMechKirsch();
+
+	//pointForceTest();
+
+	//testSector();
 
 }

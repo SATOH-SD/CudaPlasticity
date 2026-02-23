@@ -4,12 +4,12 @@
 #include "SymMatrix.cuh"
 
 #include "ConjGradSolver.h"
+#include "CG.h"
 #include "ConjGradCuda.cu";
 
-//#include "BiCGStabSolver.cu"
-//#include "PolakRibSolver.cu"
-
 //#include "cuda.h"
+
+#include <omp.h>
 
 __constant__ double GS2_d_point[2] = { -0.577'350'269'189'626, 0.577'350'269'189'626 };
 __constant__ float GS2_f_point[2] = { -0.577'350'269, 0.577'350'269 };
@@ -402,6 +402,34 @@ double PlasticitySolver::solveElastCPU() {
 	return solvingTime;
 }
 
+//DEBUG
+static void saveArray(double* data, size_t size, const std::string fileName) {
+	std::ofstream file(fileName, std::ios_base::out);
+	file.precision(15);
+	for (size_t i = 0; i < size; ++i)
+		file << data[i] << " ";
+	file.close();
+}
+
+//DEBUG
+static double checkArray(double* data, size_t size, const std::string fileName) {
+	std::ifstream file(fileName);
+	double* refData = new double[size];
+	for (size_t i = 0; i < size; ++i)
+		file >> refData[i];
+
+	double res = 0.;
+	for (size_t i = 0; i < size; ++i) {
+		double diff = fabs(data[i] - refData[i]);
+		if (diff > res)
+			res = diff;
+	}
+
+	delete[] refData;
+	return res;
+}
+
+
 
 double PlasticitySolver::solveCPU() {
 	std::cout << "Solving..." << std::endl;
@@ -423,21 +451,32 @@ double PlasticitySolver::solveCPU() {
 
 	//ConjGradSolver3 cjs(spK, uv.data());
 	//PCG cjs(spK, uv.data(), kinMask);
-	CGV2 cjs(spK, uv.data(), kinMask);
+	//CGV2 cjs(spK, uv.data(), kinMask);
+	//BJCG2 cjs(spK, uv.data(), kinMask);
+	JCGV cjs(spK, uv.data(), kinMask, 2, lines, lineRows, lineCount);
+	//cjs.setLinesDim(2);
+	//cjs.updateNorm();
 	
+	//std::list<size_t> iterHistory;  //DEBUG
+
 	size_t iterNum = 0;
 	double relErr = 0.;
 	do {
 		fillGlobalStiffness(K, spK);
-		//cjs.precond();
+		cjs.precond();
+		//cjs.checkSpector();
 		
 		size_t insideIter = 0;
 		//cjs.solve2(uv.data(), kinMask, insideIter, 1e-7);
-		cjs.solve2(insideIter, 1e-7);
+		//cjs.solve(insideIter, 1e-7);
+		insideIter = cjs.solve(1e-7);
 		
 		updateParameters(iterNum);
 		relErr = exitCondition();
 		printIter(iterNum, insideIter, relErr);
+
+		//iterHistory.push_back(insideIter); //DEBUG
+
 		++iterNum;
 		//if (iterNum >= 50) break;
 	} while (relErr > 1e-5);
@@ -446,6 +485,16 @@ double PlasticitySolver::solveCPU() {
 	std::cout << "\n\rIterations: " << iterNum << "                                             " \
 		<< "\nExit error: " << exitCondition() \
 		<< "\nTime: " << solvingTime << " s" << std::endl;
+
+	//DEBUG
+	/*for (size_t iter : iterHistory)
+		std::cout << iter << ",";
+	std::cout << "\n";*/
+
+	//DEBUG
+	//saveArray(uv.data(), uv.size(), "../data/refDispls.txt");
+	//std::cout << "\nresidual: " << checkArray(uv.data(), uv.size(), "../data/refDispls.txt") << "\n";
+
 	plastSolved = true;
 
 	delete[] h;
@@ -534,9 +583,9 @@ double PlasticitySolver::solveElastCUDA() {
 	initConditions_(spK, dd_uv);
 	//std::clog << "log3\n";
 	//
-	//ConjGradCuda2<double> cjc(spK);
+	ConjGradCuda2<double> cjc(spK);
 	//ConjGradCudaGW<double> cjc(spK, dd_uv, dev_kinNodes);
-	ConjGradCudaV2<double> cjc(spK, dd_uv, dev_kinNodes);
+	//ConjGradCudaV2<double> cjc(spK, dd_uv, dev_kinNodes);
 
 	//delete[] h;
 	//h = nullptr;
@@ -774,7 +823,7 @@ double PlasticitySolver::solveCUDA_FD() {
 	delete[] h;
 	h = nullptr;
 
-	//ConjGradCuda<float> cjc_f(spK_f);
+	//ConjGradCuda2<float> cjc_f(spK_f);
 	//ConjGradCudaGW<float> cjc_f(spK_f, df_uv, dev_kinNodes);
 	ConjGradCudaV2<float> cjc_f(spK_f, df_uv, dev_kinNodes);
 
@@ -803,7 +852,7 @@ double PlasticitySolver::solveCUDA_FD() {
 	copyFloatToDouble(spK.memLen);
 
 	//cjc_f.~ConjGradCuda();
-	//ConjGradCuda<double> cjc(spK);
+	//ConjGradCuda2<double> cjc(spK);
 
 	//cjc_f.~ConjGradCudaGW();
 	//cjc_f.~ConjGradCudaV2();
@@ -1161,6 +1210,32 @@ void PlasticitySolver::initConditions(SparseSLAE& K) {
 				kinMask[2 * border[i] + 1] = false;
 		}
 	}
+
+	unsigned lineMem = 0;
+	for (const auto& [id, line] : cond.alongLine) // подсчёт закреплений границ вдоль прямых
+		lineMem += mesh.borderLength[id];
+	lineMem += cond.pointOnLine.size();
+	if (lineMem) {
+		lines.malloc(2 * lineMem);
+		lineRows.malloc(lineMem);
+	}
+	else lines.free();
+	lineCount = 0;
+	for (const auto& [id, line] : cond.alongLine)  // закрепления границ вдоль прямых
+		for (unsigned i = 0; i < mesh.borderLength[id]; ++i) {
+			lineRows[lineCount] = 2 * mesh.borders[id][i];
+			reinterpret_cast<vec2*>(lines.data())[lineCount] = line;
+			++lineCount;
+		}
+	for (const auto& line : cond.pointOnLine)  // закрепления точек вдоль прямых
+		for (int i = 0; i < mesh.nodeCount; ++i)
+			if ((mesh.node[i] - line.point).norm() < 1e-14) {
+				lineRows[lineCount] = 2 * i;
+				reinterpret_cast<vec2*>(lines.data())[lineCount] = line.value;
+				++lineCount;
+				break;
+			}
+
 	for (const auto& forcePoint : cond.forcePoint) {  //сила в точке
 		for (int i = 0; i < mesh.nodeCount; ++i)
 			if ((mesh.node[i] - forcePoint.point).norm() < 1e-14) {

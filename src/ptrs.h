@@ -1,9 +1,12 @@
 ﻿#pragma once
 
+#include <cstring>
+
 #include "cuda_runtime.h"
 
 
 // Host selfdestructive pointer
+// (не хранит информацию о размере выделенной памяти!)
 template<typename T>
 class hptr {
 
@@ -52,6 +55,20 @@ public:
 		ptr = new T[size];
 	}
 
+	// Перевыделить память без сохранения данных
+	void realloc(unsigned size) {
+		delete[] ptr;
+		ptr = new T[size];
+	}
+
+	// Изменить размер выделенной памяти с сохранением данных
+	void expand(unsigned oldSize, unsigned newSize) {
+		T* newptr = new T[newSize];
+		memcpy(newptr, ptr, std::min(oldSize, newSize) * sizeof(T));
+		std::swap(ptr, newptr);
+		delete[] newptr;
+	}
+
 	void free() {
 		delete[] ptr;
 		ptr = nullptr;
@@ -64,6 +81,7 @@ public:
 
 
 // Device selfdestructive pointer
+// (не хранит информацию о размере выделенной памяти!)
 template<typename T>
 class dptr {
 
@@ -113,6 +131,12 @@ public:
 	void malloc(unsigned size) {
 		cudaMalloc(&ptr, size * sizeof(T));
 	}
+
+	// Изменить размер выделенной памяти с сохранением данных
+	void expand(unsigned oldSize, unsigned newSize);
+
+	// Перевыделить память без сохранения данных
+	void realloc(unsigned size);
 
 	void free() {
 		cudaFree(ptr);

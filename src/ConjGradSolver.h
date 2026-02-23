@@ -1,4 +1,6 @@
-﻿#pragma once
+﻿// LEGACY
+
+#pragma once
 
 #include "SparseSLAE.h"
 
@@ -362,7 +364,7 @@ private:
 		* r = nullptr,
 		* z = nullptr,
 		* s = nullptr,
-		* dr = nullptr,
+		* q = nullptr,
 		* D = nullptr,
 		* DR = nullptr;
 
@@ -378,7 +380,7 @@ public:
 		r = new double[slae.N];
 		z = new double[slae.N];
 		s = new double[slae.N];
-		dr = new double[slae.N];
+		q = new double[slae.N];
 		D = new double[slae.N];
 		DR = new double[slae.N];
 
@@ -397,9 +399,34 @@ public:
 		delete[] r;
 		delete[] z;
 		delete[] s;
-		delete[] dr;
+		delete[] q;
 		delete[] D;
 		delete[] DR;
+	}
+
+	void checkSpector() {
+		double minA = 1e300, minR = 1e300, minE = 1e300,
+			maxA = 0., maxR = 0., maxE = 0.,
+			avrA = 0., avrR = 0.;
+		for (int i = 0; i < slae.N; ++i) {
+			double A = 0., R = 0.;
+			for (unsigned j = slae.rows[i]; j < slae.rows[i + 1]; ++j) {
+				if (slae.cols[j] == i)
+					A = slae.data[j];
+				else
+					R += fabs(slae.data[j]);
+			}
+			if (A < minA) minA = A;
+			if (A > maxA) maxA = A;
+			if (R < minR) minR = R;
+			if (R > maxR) maxR = R;
+			if (A - R < minE) minE = A - R;
+			if (A + R > maxE) maxE = A + R;
+			avrA += A; avrR += R;// avrE += E;
+		}
+		std::cout << "\nminA = " << minA << "   maxA = " << maxA << "  avr = " << avrA / slae.N;
+		std::cout << "\nminR = " << minR << "   maxR = " << maxR << "  avr = " << avrR / slae.N;
+		std::cout << "\nminE = " << minE << "   maxE = " << maxE << "\n";
 	}
 
 	void precond() {
@@ -413,13 +440,24 @@ public:
 				double el = slae.data[j];
 				sum += el * el;
 			}
-			//double dr = DR[i] = 1. / D[i];
-			double dr = DR[i] = 1. / sqrt(sum);
+			double d = D[i] = sqrt(sum);
+			double dr = DR[i] = 1. / d;
+			//double dr = DR[i] = 1. / sqrt(sum);
 			norm += dr * dr;
 			//std::cout << D[i] << " " << DR[i] << "\n";
 			//printf("%f %e\n", D[i], DR[i]);
 		}
 		normDR = norm;
+
+		double sum = 0.;
+#pragma omp parallel for reduction(+ : sum)
+		for (int i = 0; i < slae.N; ++i)
+			sum += DR[i] * slae.rp[i] * slae.rp[i];
+		if (sum < 1e-200)
+#pragma omp parallel for reduction(+ : sum)
+			for (int i = 0; i < slae.N; ++i)
+				sum += DR[i] * x[i] * x[i];
+		normB = sum;
 	}
 
 
@@ -480,7 +518,7 @@ public:
 //			z[i] = 0.;
 //			rhoNext += rk * rk;
 //		}
-//		std::cout << "\nrho = " << sqrt(rhoNext / normB) << "\n";
+//		std::cout << "\nrho = " << sqrt(rhoNext / normB) << "  ";
 	}
 
 
@@ -495,10 +533,11 @@ public:
 			double rk = mask[i] * (slae.rp[i] - sum);
 			r[i] = rk;
 			z[i] = 0.;
-			rhoNext += DR[i] * rk * rk;
+			double qk = q[i] = DR[i] * rk;
+			rhoNext += qk * rk;
 		}
 
-		double eps2b = eps * eps * normB * sqrt(normDR);
+		double eps2b = eps * eps * normB;// *sqrt(normDR);
 
 		while (rhoNext > eps2b) {    //основной цикл
 
@@ -506,7 +545,7 @@ public:
 
 #pragma omp parallel for
 			for (int i = 0; i < slae.N; ++i)
-				z[i] = DR[i] * r[i] + beta * z[i];
+				z[i] = q[i] + beta * z[i];
 
 			omega = 0.;
 #pragma omp parallel for reduction (+ : omega)
@@ -525,29 +564,13 @@ public:
 			for (int i = 0; i < slae.N; ++i) {
 				x[i] += alpha * z[i];
 				double rk = r[i] -= mask[i] * alpha * s[i];
-				rhoNext += DR[i] * rk * rk;
+				double qk = q[i] = DR[i] * rk;
+				rhoNext += qk * rk;
 			}
 
 			if (iterNum > slae.N) break;
 			++iterNum;
 		}
-
-//#pragma omp parallel for reduction (+ : rhoNext)
-//		for (int i = 0; i < slae.N; ++i) {
-//			double sum = 0.;
-//			for (int j = slae.rows[i]; j < slae.rows[i + 1]; ++j)
-//				sum += slae.data[j] * x[slae.cols[j]];
-//			double rk = mask[i] * (slae.rp[i] - sum);
-//			r[i] = rk;
-//			z[i] = 0.;
-//			rhoNext += rk * rk;
-//		}
-//		std::cout << "\nrho = " << sqrt(rhoNext / normB) << "\n";
-	}
-
-
-	void solve3(size_t& iterNum, double eps) {
-		double rhoNext = 0., rhoPrev = 1., omega;
 
 #pragma omp parallel for reduction (+ : rhoNext)
 		for (int i = 0; i < slae.N; ++i) {
@@ -558,9 +581,105 @@ public:
 			r[i] = rk;
 			z[i] = 0.;
 			rhoNext += rk * rk;
+			//rhoNext += DR[i] * rk * rk;
+		}
+		//std::cout << "\nrho = " << sqrt(rhoNext / normB) << "  ";
+		//std::cout << "\nrho = " << sqrt(rhoNext / normB / sqrt(normDR)) << "  ";
+	}
+
+
+	void solve3(size_t& iterNum, double eps) {
+		double rhoNext = 0., rhoPrev = 1., omega;
+
+
+		
+#pragma omp parallel for reduction (+ : rhoNext)
+		for (int i = 0; i < slae.N; ++i) {
+			double sum = 0.;
+			for (int j = slae.rows[i]; j < slae.rows[i + 1]; ++j)
+				sum += slae.data[j] * x[slae.cols[j]];
+			//double rk = mask[i] * D[i] * (slae.rp[i] - sum);
+			double rk = mask[i] * (slae.rp[i] - sum);
+			r[i] = rk;
+			z[i] = 0.;
+			rhoNext += rk * rk;
+		}
+		for (int i = 0; i < slae.N; ++i) {
+			for (int j = slae.rows[i]; j < slae.rows[i + 1]; ++j)
+				slae.data[j] *= DR[slae.cols[j]];
+			x[i] *= D[i];
+		}
+		
+
+		double eps2b = eps * eps * normB / (normDR);
+
+		while (rhoNext > eps2b) {    //основной цикл
+
+			double beta = rhoNext / rhoPrev;
+
+#pragma omp parallel for
+			for (int i = 0; i < slae.N; ++i)
+				z[i] = r[i] + beta * z[i];
+
+			omega = 0.;
+#pragma omp parallel for reduction (+ : omega)
+			for (int i = 0; i < slae.N; ++i) {
+				double sum = 0.;
+				for (int j = slae.rows[i]; j < slae.rows[i + 1]; ++j)
+					sum += slae.data[j] * z[slae.cols[j]];
+				s[i] = sum;
+				omega += sum * z[i];
+			}
+
+			double alpha = rhoNext / omega;
+			rhoPrev = rhoNext, rhoNext = 0.;
+
+#pragma omp parallel for reduction (+ : rhoNext)
+			for (int i = 0; i < slae.N; ++i) {
+				x[i] += alpha * z[i];
+				double rk = r[i] -= mask[i] * alpha * s[i];
+				rhoNext += rk * rk;
+			}
+
+			if (iterNum > slae.N) break;
+			++iterNum;
+		}
+		//#pragma omp parallel for reduction (+ : rhoNext)
+		//		for (int i = 0; i < slae.N; ++i) {
+		//			double sum = 0.;
+		//			for (int j = slae.rows[i]; j < slae.rows[i + 1]; ++j)
+		//				sum += slae.data[j] * x[slae.cols[j]];
+		//			double rk = mask[i] * (slae.rp[i] - sum);
+		//			r[i] = rk;
+		//			z[i] = 0.;
+		//			rhoNext += rk * rk;
+		//		}
+		//		std::cout << "\nrho = " << sqrt(rhoNext / normB) << "\n";
+
+		for (int i = 0; i < slae.N; ++i)
+			x[i] *= DR[i];
+	}
+
+	void solve4(size_t& iterNum, double eps) {
+		double rhoNext = 0., rhoPrev = 1., omega;
+
+		for (int i = 0; i < slae.N; ++i) {
+			for (int j = slae.rows[i]; j < slae.rows[i + 1]; ++j)
+				slae.data[j] *= DR[i];
+		}
+#pragma omp parallel for reduction (+ : rhoNext)
+		for (int i = 0; i < slae.N; ++i) {
+			double sum = 0.;
+			for (int j = slae.rows[i]; j < slae.rows[i + 1]; ++j)
+				sum += slae.data[j] * x[slae.cols[j]];
+			double rk = mask[i] * (DR[i] * slae.rp[i] - sum);
+			//double rk = mask[i] * (slae.rp[i] - sum);
+			r[i] = rk;
+			z[i] = 0.;
+			rhoNext += rk * rk;
 		}
 
-		double eps2b = eps * eps * normB;
+		double eps2b = eps * eps * normB * sqrt(normDR);
 
 		while (rhoNext > eps2b) {    //основной цикл
 
@@ -760,6 +879,236 @@ public:
 				x[i] += alpha * z[i];
 				double rk = r[i] -= mask[i] * alpha * s[i];
 				rhoNext += rk * rk;
+			}
+
+			if (iterNum > slae.N) break;
+			++iterNum;
+		}
+	}
+
+};
+
+
+
+// Block Jacobi Preconditioned Conjugate Gradient Method Vectorized by 2x2
+class BJCG2 {
+
+private:
+
+	SparseSLAE& slae;
+
+	double* x = nullptr,
+		* r = nullptr,
+		* z = nullptr,
+		* s = nullptr,
+		* dr = nullptr,
+		* D = nullptr,
+		* DR = nullptr;
+
+	bool* mask = nullptr;
+
+	double normB = 0., normDR = 0.;
+
+public:
+
+	BJCG2(SparseSLAE& slae, double* solVector, bool* mask)
+		: slae(slae), x(solVector), mask(mask) {
+
+		r = new double[slae.N];
+		z = new double[slae.N];
+		s = new double[slae.N];
+		dr = new double[slae.N];
+		D = new double[2 * slae.N];
+		DR = new double[2 * slae.N];
+
+		double sum = 0.;
+#pragma omp parallel for reduction(+ : sum)
+		for (int i = 0; i < slae.N; ++i)
+			sum += slae.rp[i] * slae.rp[i];
+		if (sum < 1e-200)
+#pragma omp parallel for reduction(+ : sum)
+			for (int i = 0; i < slae.N; ++i)
+				sum += x[i] * x[i];
+		normB = sum;
+	}
+
+	~BJCG2() {
+		delete[] r;
+		delete[] z;
+		delete[] s;
+		delete[] dr;
+		delete[] D;
+		delete[] DR;
+	}
+
+	void precond() {
+		double norm = 0.;
+		for (int i = 0; i < slae.N; i += 2) {
+			int i2 = 2 * i;
+			double sum = 0.;
+			for (unsigned j = slae.rows[i]; j < slae.rows[i + 1]; j += 2) {
+				if (slae.cols[j] == i) {
+					D[i2] = slae.data[j];
+					D[i2 + 1] = slae.data[j + 1];
+					int shift = slae.rows[i + 1] - slae.rows[i];
+					D[i2 + 2] = slae.data[j + shift];
+					D[i2 + 3] = slae.data[j + shift + 1];
+					break;
+				}
+				/*double el = slae.data[j];
+				sum += el * el;*/
+			}
+			
+			//double dr = DR[i] = 1. / d;
+			double invDet = 1. / (D[i2] * D[i2 + 3] - D[i2 + 1] * D[i2 + 2]);
+			DR[i2] = D[i2 + 3] * invDet;
+			DR[i2 + 1] = D[i2 + 1] * invDet;
+			DR[i2 + 2] = D[i2 + 2] * invDet;
+			DR[i2 + 3] = D[i2] * invDet;
+			//printf("%e %e %e %e\n", DR[i2], DR[i2 + 1], DR[i2 + 2], DR[i2 + 3]);
+			
+			norm += DR[i2] * DR[i2] + DR[i2 + 1] * DR[i2 + 1] + DR[i2 + 2] * DR[i2 + 2] + DR[i2 + 3] * DR[i2 + 3];
+			//std::cout << D[i] << " " << DR[i] << "\n";
+			//printf("%f %e\n", D[i], DR[i]);
+		}
+		normDR = norm;
+	}
+
+	void solve(size_t& iterNum, double eps) {
+		double rhoNext = 0., rhoPrev = 1., omega;
+
+#pragma omp parallel for reduction (+ : rhoNext)
+		for (int i = 0; i < slae.N; ++i) {
+			double sum = 0.;
+			for (int j = slae.rows[i]; j < slae.rows[i + 1]; ++j)
+				sum += slae.data[j] * x[slae.cols[j]];
+			double rk = mask[i] * (slae.rp[i] - sum);
+			r[i] = rk;
+			z[i] = 0.;
+			rhoNext += rk * rk;
+		}
+
+		double eps2b = eps * eps * normB;// *(normDR * normDR);
+
+		while (rhoNext > eps2b) {    //основной цикл
+
+			double beta = rhoNext / rhoPrev;
+
+#pragma omp parallel for
+			for (int i = 0; i < slae.N; ++i)
+				z[i] = r[i] + beta * z[i];
+
+			omega = 0.;
+#pragma omp parallel for reduction (+ : omega)
+			for (int i = 0; i < slae.N; i += 2) {
+				register double sum1 = 0., sum2 = 0.;
+				int shift = slae.rows[i + 1] - slae.rows[i];
+				for (int j = slae.rows[i]; j < slae.rows[i + 1]; j += 2) {
+					int col = slae.cols[j];
+					register double ze1 = z[col], ze2 = z[col + 1];
+					sum1 += slae.data[j] * ze1 + slae.data[j + 1] * ze2;
+					sum2 += slae.data[j + shift] * ze1 + slae.data[j + shift + 1] * ze2;
+				}
+				s[i] = sum1;
+				s[i + 1] = sum2;
+				omega += sum1 * z[i] + sum2 * z[i + 1];
+			}
+			/*for (int i = 0; i < slae.N; i += 2) {
+				register double sum1 = 0., sum2 = 0.;
+				int shift = slae.rows[i + 1] - slae.rows[i];
+				for (int j = slae.rows[i]; j < slae.rows[i + 1]; ++j) {
+					register double ze = z[slae.cols[j]];
+					sum1 += slae.data[j] * ze;
+					sum2 += slae.data[j + shift] * ze;
+				}
+				s[i] = sum1;
+				s[i + 1] = sum2;
+				omega += sum1 * z[i] + sum2 * z[i + 1];
+			}*/
+
+			double alpha = rhoNext / omega;
+			rhoPrev = rhoNext, rhoNext = 0.;
+
+#pragma omp parallel for reduction (+ : rhoNext)
+			for (int i = 0; i < slae.N; ++i) {
+				x[i] += alpha * z[i];
+				double rk = r[i] -= mask[i] * alpha * s[i];
+				rhoNext += rk * rk;
+			}
+
+			if (iterNum > slae.N) break;
+			++iterNum;
+		}
+	}
+	
+	void solve2(size_t& iterNum, double eps) {
+		double rhoNext = 0., rhoPrev = 1., omega;
+
+#pragma omp parallel for reduction (+ : rhoNext)
+		for (int i = 0; i < slae.N; i += 2) {
+			double sum1 = 0., sum2 = 0.;
+			int shift = slae.rows[i + 1] - slae.rows[i];
+			for (int j = slae.rows[i]; j < slae.rows[i + 1]; ++j) {
+				sum1 += slae.data[j] * x[slae.cols[j]];
+				sum2 += slae.data[j + shift] * x[slae.cols[j + shift]];
+				/*int col = slae.cols[j];
+				register double xe1 = x[col], xe2 = x[col + 1];
+				sum1 += slae.data[j] * xe1 + slae.data[j + 1] * xe2;
+				sum2 += slae.data[j + shift] * xe1 + slae.data[j + shift + 1] * xe2;*/
+			}
+			double rk1 = mask[i] * (slae.rp[i] - sum1);
+			double rk2 = mask[i + 1] * (slae.rp[i + 1] - sum2);
+			r[i] = rk1;
+			r[i + 1] = rk2;
+			z[i + 1] = z[i] = 0.;
+
+			dr[i] = DR[2 * i] * rk1 + DR[2 * i + 1] * rk2;
+			dr[i + 1] = DR[2 * i + 2] * rk1 + DR[2 * i + 3] * rk2;
+			//rhoNext += rk1 * rk1 + rk2 * rk2;
+			rhoNext += dr[i] * rk1 + dr[i + 1] * rk2;
+		}
+
+		double eps2b = eps * eps * normB * sqrt(normDR);
+
+		while (rhoNext > eps2b) {    //основной цикл
+
+			double beta = rhoNext / rhoPrev;
+
+#pragma omp parallel for
+			for (int i = 0; i < slae.N; ++i)
+				//z[i] = r[i] + beta * z[i];
+				z[i] = dr[i] + beta * z[i];
+
+			omega = 0.;
+#pragma omp parallel for reduction (+ : omega)
+			for (int i = 0; i < slae.N; i += 2) {
+				register double sum1 = 0., sum2 = 0.;
+				int shift = slae.rows[i + 1] - slae.rows[i];
+				for (int j = slae.rows[i]; j < slae.rows[i + 1]; j += 2) {
+					int col = slae.cols[j];
+					register double ze1 = z[col], ze2 = z[col + 1];
+					sum1 += slae.data[j] * ze1 + slae.data[j + 1] * ze2;
+					sum2 += slae.data[j + shift] * ze1 + slae.data[j + shift + 1] * ze2;
+				}
+				s[i] = sum1;
+				s[i + 1] = sum2;
+				omega += sum1 * z[i] + sum2 * z[i + 1];
+			}
+
+			double alpha = rhoNext / omega;
+			rhoPrev = rhoNext, rhoNext = 0.;
+
+#pragma omp parallel for reduction (+ : rhoNext)
+			for (int i = 0; i < slae.N; i += 2) {
+				x[i] += alpha * z[i];
+				x[i + 1] += alpha * z[i + 1];
+				double rk1 = r[i] -= mask[i] * alpha * s[i];
+				double rk2 = r[i + 1] -= mask[i + 1] * alpha * s[i + 1];
+
+				dr[i] = DR[2 * i] * rk1 + DR[2 * i + 1] * rk2;
+				dr[i + 1] = DR[2 * i + 2] * rk1 + DR[2 * i + 3] * rk2;
+				//rhoNext += rk1 * rk1 + rk2 * rk2;
+				rhoNext += dr[i] * rk1 + dr[i + 1] * rk2;
 			}
 
 			if (iterNum > slae.N) break;

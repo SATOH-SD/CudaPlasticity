@@ -16,8 +16,8 @@ struct vec2 {
 	};
 
 	__device__ __host__
-	vec2(double _x, double _y)
-		: x(_x), y(_y) {
+	vec2(double x, double y)
+		: x(x), y(y) {
 	};
 
 	__device__ __host__

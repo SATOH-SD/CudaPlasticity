@@ -2,12 +2,14 @@
 
 #include <omp.h>
 
+#include "ptrs.h"
 #include "SymMatrix.cuh"
 #include "StaticMatrix.cuh"
 #include "Tensors.cuh"
+
 #include "Mesh.h"
-#include "LoadConditions.cuh"
-#include "SLAE_Solvers.cuh"
+#include "LoadConditions.h"
+#include "SparseSLAE.h"
 #include "ConjGradCuda.cu"
 #include "Material.cuh"
 
@@ -80,6 +82,11 @@ private:
 	//int kinCount = 0;
 
 	bool* dev_kinNodes;  //Маска кинематических условий для видеокарты
+
+	unsigned lineCount = 0;
+	
+	hptr<double> lines;
+	hptr<unsigned> lineRows;
 
 	StaticMatrix<3, 3, double>* C = nullptr;
 	StaticMatrix<2, 3, double>* B3 = nullptr;
@@ -219,6 +226,8 @@ public:
 	bool iterOutput = true;
 
 	bool floatBoost = false;
+
+	bool preconditioning = true;
 
 	double getSxx0() const {
 		if (mesh.useCuda) {

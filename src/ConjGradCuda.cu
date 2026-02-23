@@ -6,6 +6,8 @@
 
 #include "cuda.h"
 
+#include "CGKernels.cuh"
+
 template <typename fp>
 static __device__ void warpReduce(volatile fp* sdata, int tid) {
 	sdata[tid] += sdata[tid + 32];
@@ -482,7 +484,7 @@ public:
 
 		cudaKernelNodeParams cg1Params = { 0 };
 		void* cg1Args[4] = { &rNext, &zNext, &rhoPrev, &rhoNext };
-		cg1Params.func = cg1<fp>;
+		cg1Params.func = (void*)cg1<fp>;
 		cg1Params.gridDim = dim3(grid, 1, 1);
 		cg1Params.blockDim = dim3(block, 1, 1);
 		cg1Params.sharedMemBytes = 0;
@@ -496,7 +498,7 @@ public:
 		cudaKernelNodeParams cg2Params = { 0 };
 		//memset(&kernelNodeParams, 0, sizeof(kernelNodeParams));
 		void* cg2Args[6] = { &slae.data, &slae.rows, &slae.cols, &zNext, &s, &dev_omega };
-		cg2Params.func = cg2<fp>;
+		cg2Params.func = (void*)cg2<fp>;
 		cg2Params.gridDim = dim3(grid, 1, 1);
 		cg2Params.blockDim = dim3(block, 1, 1);
 		cg2Params.sharedMemBytes = 0;
@@ -509,7 +511,7 @@ public:
 		cudaKernelNodeParams cg3Params = { 0 };
 		//memset(&kernelNodeParams, 0, sizeof(kernelNodeParams));
 		void* cg3Args[8] = { &xNext, &rNext, &zNext, &s, &dev_omega, &rhoNext, &dev_scalars, &mask };
-		cg3Params.func = cg3<fp>;
+		cg3Params.func = (void*)cg3<fp>;
 		cg3Params.gridDim = dim3(grid, 1, 1);
 		cg3Params.blockDim = dim3(block, 1, 1);
 		cg3Params.sharedMemBytes = 0;
@@ -601,152 +603,7 @@ public:
 };
 
 
-template<typename fp>
-static __global__ void cgInitG(fp* data, int* rows, int* cols, fp* rp, fp* x, fp* r, fp* z, fp* rhoNext, bool* mask) {
-	int i = blockIdx.x * blockDim.x + threadIdx.x;
-	int tid = threadIdx.x;
-	__shared__ fp sdata[CGBS];
-	fp sum = {};
-	for (int j = rows[i]; j < rows[i + 1]; ++j)
-		sum += data[j] * x[cols[j]];         //вычисление A.x0
-	fp rk = mask[i] * (rp[i] - sum);
-	r[i] = rk;
-	z[i] = 0;
-	sdata[tid] = rk * rk;
-	__syncthreads();
 
-	//вычисление (r0, r0)
-	for (unsigned int s = blockDim.x / 2; s > 32; s >>= 1) {
-		if (tid < s) {
-			sdata[tid] += sdata[tid + s];
-		}
-		__syncthreads();
-	}
-	if (tid < 32) warpReduce(sdata, tid);
-	if (tid == 0) atomicAdd(rhoNext, sdata[0]);
-}
-
-template <typename fp>
-static __global__ void cg1g(fp* r, fp* z, fp* rhoPrev, fp* rhoNext) {
-	int i = blockIdx.x * blockDim.x + threadIdx.x;
-	//if (i == 0) printf("rhoNext %f\n", rhoNext);
-	//if (i == 0) printf("rhoPrev %f\n", rhoPrev);
-	fp beta = *rhoNext / *rhoPrev;                  //вычисление beta
-	z[i] = r[i] + beta * z[i];        //вычисление zk
-	//if (i == 0) printf("beta %f\n", beta);
-}
-
-template<typename fp>
-static __global__ void cg2g(fp* data, int* rows, int* cols, fp* z, fp* s, fp* omega) {
-	int i = blockIdx.x * blockDim.x + threadIdx.x;
-	int tid = threadIdx.x;
-	__shared__ fp sdata[CGBS];
-
-	//if (i == 0) printf("cg2\n");
-
-	fp sum = {};
-	for (int j = rows[i]; j < rows[i + 1]; ++j)
-		sum += data[j] * z[cols[j]];         //вычисление A.z
-	s[i] = sum;
-	sdata[tid] = sum * z[i];
-
-	__syncthreads();
-
-	//вычисление (A.z, z)
-	for (unsigned int s = blockDim.x / 2; s > 32; s >>= 1) {
-		if (tid < s)
-			sdata[tid] += sdata[tid + s];
-		__syncthreads();
-	}
-	if (tid < 32) warpReduce(sdata, tid);
-	if (tid == 0) atomicAdd(omega, sdata[0]);
-}
-
-template<typename fp>
-static __global__ void cg2g_d(double* data, int* rows, int* cols, double* z, double* s, double* omega) {
-	int i = blockIdx.x * blockDim.x + threadIdx.x;
-	int tid = threadIdx.x;
-	__shared__ double sdata[CGBS];
-
-	double sum = {};
-	for (int j = rows[i]; j < rows[i + 1]; j += 2) {
-		double2 zv = *reinterpret_cast<double2*>(z + cols[j]);
-		double2 dv = *reinterpret_cast<double2*>(data + j);
-		sum += zv.x * dv.x + zv.y * dv.y;
-		//sum += data[j] * z[cols[j]];         //вычисление A.z
-	}
-	s[i] = sum;
-	sdata[tid] = sum * z[i];
-
-	__syncthreads();
-
-	//вычисление (A.z, z)
-	for (unsigned int s = blockDim.x / 2; s > 32; s >>= 1) {
-		if (tid < s)
-			sdata[tid] += sdata[tid + s];
-		__syncthreads();
-	}
-	if (tid < 32) warpReduce(sdata, tid);
-	if (tid == 0) atomicAdd(omega, sdata[0]);
-}
-
-template<typename fp>
-static __global__ void cg2g_f(float* data, int* rows, int* cols, float* z, float* s, float* omega) {
-	int i = blockIdx.x * blockDim.x + threadIdx.x;
-	int tid = threadIdx.x;
-	__shared__ float sdata[CGBS];
-
-	float sum = {};
-	for (int j = rows[i]; j < rows[i + 1]; j += 2) {
-		float2 zv = *reinterpret_cast<float2*>(z + cols[j]);
-		float2 dv = *reinterpret_cast<float2*>(data + j);
-		sum += zv.x * dv.x + zv.y * dv.y;
-		//sum += data[j] * z[cols[j]];         //вычисление A.z
-	}
-	s[i] = sum;
-	sdata[tid] = sum * z[i];
-
-	__syncthreads();
-
-	//вычисление (A.z, z)
-	for (unsigned int s = blockDim.x / 2; s > 32; s >>= 1) {
-		if (tid < s)
-			sdata[tid] += sdata[tid + s];
-		__syncthreads();
-	}
-	if (tid < 32) warpReduce(sdata, tid);
-	if (tid == 0) atomicAdd(omega, sdata[0]);
-}
-
-
-template <typename fp>
-static __global__ void cg3g(fp* x, fp* r, fp* z, fp* s, fp* scalars, bool* mask) {
-	int i = blockIdx.x * blockDim.x + threadIdx.x;
-	int tid = threadIdx.x;
-	fp omega = *scalars, * rhoNext = scalars + 1, rhoPrev = scalars[2];
-	__shared__ fp sdata[CGBS];
-	//if (i == 0) printf("omega   %e\n\n", omega);
-	fp alpha = rhoPrev / omega;  //вычисление alpha
-
-	//if (i == 0) printf("rhoPrCu %e\n", rhoPrev);
-	//if (i == 0) printf("alpha   %e\n", alpha);
-	//if (i == 0) printf("rhoNext %f\n", *rhoNext);
-	x[i] += alpha * z[i];       //вычисление xk
-
-	fp rk = r[i] -= mask[i] * alpha * s[i];
-	sdata[tid] = rk * rk;
-	__syncthreads();
-
-	//вычисление (rk, rk)
-	for (unsigned int s = blockDim.x / 2; s > 32; s >>= 1) {
-		if (tid < s) {
-			sdata[tid] += sdata[tid + s];
-		}
-		__syncthreads();
-	}
-	if (tid < 32) warpReduce(sdata, tid);
-	if (tid == 0) atomicAdd(rhoNext, sdata[0]);
-}
 
 template<typename fp>
 class ConjGradCudaG {
@@ -817,7 +674,8 @@ public:
 
 		cudaKernelNodeParams cg1Params = { 0 };
 		void* cg1Args[4] = { &r, &z, &dev_rhoPrev, &dev_rhoNext };
-		cg1Params.func = cg1g<fp>;
+		if constexpr (sizeof(fp) == 4) cg1Params.func = (void*)cg1g_f;
+		else cg1Params.func = (void*)cg1g_d;
 		cg1Params.gridDim = dim3(grid, 1, 1);
 		cg1Params.blockDim = dim3(block, 1, 1);
 		cg1Params.sharedMemBytes = 0;
@@ -844,7 +702,8 @@ public:
 		//memset(&kernelParams, 0, sizeof(kernelParams));
 		cudaKernelNodeParams cg2Params = { 0 };
 		void* cg2Args[6] = { &slae.data, &slae.rows, &slae.cols, &z, &s, &dev_omega };
-		cg2Params.func = cg2g<fp>;
+		if constexpr (sizeof(fp) == 4) cg2Params.func = (void*)cg2g_f;
+		else cg2Params.func = (void*)cg2g_d;
 		cg2Params.kernelParams = cg2Args;
 		cg2Params.gridDim = dim3(grid, 1, 1);
 		cg2Params.blockDim = dim3(block, 1, 1);
@@ -858,7 +717,8 @@ public:
 		//memset(&kernelParams, 0, sizeof(kernelParams));
 		cudaKernelNodeParams cg3Params = { 0 };
 		void* cg3Args[6] = { &x, &r, &z, &s, &dev_scalars, &mask };
-		cg3Params.func = cg3g<fp>;
+		if constexpr (sizeof(fp) == 4) cg3Params.func = (void*)cg3g_f;
+		else cg3Params.func = (void*)cg3g_d;
 		cg3Params.kernelParams = cg3Args;
 		cg3Params.gridDim = dim3(grid, 1, 1);
 		cg3Params.blockDim = dim3(block, 1, 1);
@@ -897,22 +757,28 @@ public:
 
 		fp rhoPrev = 1.;
 		cudaMemcpyAsync(dev_rhoPrev, &rhoPrev, sizeof(fp), cudaMemcpyHostToDevice, stream);
-		cgInitG<fp><<<grid, block, 0, stream>>>(slae.data, slae.rows, slae.cols, slae.rp, x, r, z, dev_rhoNext, mask);
+		if (sizeof(fp) == 4)
+			cgInitG_f<<<grid, block, 0, stream>>>(slae.data, slae.rows, slae.cols, slae.rp, x, r, z, dev_rhoNext, mask);
+		else
+			cgInitG_d<<<grid, block, 0, stream>>>(slae.data, slae.rows, slae.cols, slae.rp, x, r, z, dev_rhoNext, mask);
 		cudaStreamSynchronize(stream);
 		cudaMemcpy(rho, dev_rhoNext, sizeof(fp), cudaMemcpyDeviceToHost);
 
 		while (*rho > eps) {
 
-			cg1g<fp><<<grid, block>>>(r, z, dev_rhoPrev, dev_rhoNext);
+			if constexpr (sizeof(fp) == 4) cg1g_f<<<grid, block>>>(r, z, dev_rhoPrev, dev_rhoNext);
+			else cg1g_d<<<grid, block>>>(r, z, dev_rhoPrev, dev_rhoNext);
 			cudaDeviceSynchronize();
 
 			cudaMemcpy(dev_rhoPrev, dev_rhoNext, sizeof(fp), cudaMemcpyDeviceToDevice);
 			cudaMemset(dev_scalars, 0, 2 * sizeof(fp));
 
-			cg2g<fp><<<grid, block>>>(slae.data, slae.rows, slae.cols, z, s, dev_omega);
+			if constexpr (sizeof(fp) == 4) cg2g_f<<<grid, block>>>(slae.data, slae.rows, slae.cols, z, s, dev_omega);
+			else cg2g_d<<<grid, block>>>(slae.data, slae.rows, slae.cols, z, s, dev_omega);
 			cudaDeviceSynchronize();
 
-			cg3g<fp><<<grid, block>>>(x, r, z, s, dev_scalars, mask);
+			if constexpr (sizeof(fp) == 4) cg3g_f<<<grid, block>>>(x, r, z, s, dev_scalars, mask);
+			else cg3g_d<<<grid, block>>>(x, r, z, s, dev_scalars, mask);
 			cudaDeviceSynchronize();
 
 			cudaMemcpy(rho, dev_rhoNext, sizeof(fp), cudaMemcpyDeviceToHost);
@@ -933,7 +799,10 @@ public:
 
 		fp rhoPrev = 1.;
 		cudaMemcpyAsync(dev_rhoPrev, &rhoPrev, sizeof(fp), cudaMemcpyHostToDevice, stream);
-		cgInitG<fp> << <grid, block, 0, stream >> > (slae.data, slae.rows, slae.cols, slae.rp, x, r, z, dev_rhoNext, mask);
+		if constexpr (sizeof(fp) == 4)
+			cgInitG_f<<<grid, block, 0, stream>>>(slae.data, slae.rows, slae.cols, slae.rp, x, r, z, dev_rhoNext, mask);
+		else
+			cgInitG_d<<<grid, block, 0, stream>>>(slae.data, slae.rows, slae.cols, slae.rp, x, r, z, dev_rhoNext, mask);
 		cudaStreamSynchronize(stream);
 		cudaMemcpy(rho, dev_rhoNext, sizeof(fp), cudaMemcpyDeviceToHost);
 
@@ -952,14 +821,6 @@ public:
 
 
 };
-
-
-template<typename fp>
-__global__ void loopCondition(cudaGraphConditionalHandle handle, fp* rho, fp eps, size_t* iterations) {
-	cudaGraphSetConditional(handle, *rho > eps);
-	++(*iterations);
-	//printf("%d ", *iterations);
-}
 
 
 template<typename fp>
@@ -1037,7 +898,8 @@ public:
 
 		cudaKernelNodeParams initParams = { 0 };
 		void* initArgs[9] = { &slae.data, &slae.rows, &slae.cols, &slae.rp, &x, &r, &z, &dev_rhoNext, &mask};
-		initParams.func = cgInitG<fp>;
+		if constexpr (sizeof(fp) == 4) initParams.func = (void*)cgInitG_f;
+		else initParams.func = (void*)cgInitG_d;
 		initParams.gridDim = dim3(grid, 1, 1);
 		initParams.blockDim = dim3(block, 1, 1);
 		initParams.sharedMemBytes = 0;
@@ -1045,7 +907,8 @@ public:
 		initParams.extra = nullptr;
 		cudaGraphAddKernelNode(&initNode, mainGraph, nullptr, 0, &initParams);
 
-		condParams.func = loopCondition<fp>;
+		if constexpr (sizeof(fp) == 4) condParams.func = (void*)loopCondition_f;
+		else condParams.func = (void*)loopCondition_d;
 		condParams.gridDim = dim3(1, 1, 1);
 		condParams.blockDim = dim3(1, 1, 1);
 		condParams.sharedMemBytes = 0;
@@ -1057,7 +920,11 @@ public:
 		loopParams.conditional.handle = handle;
 		loopParams.conditional.type = cudaGraphCondTypeWhile;
 		loopParams.conditional.size = 1;
+#if CUDA_VERSION >= 13000
 		cudaGraphAddNode(&loopNode, mainGraph, &conditionNode, nullptr, 1, &loopParams);
+#else
+		cudaGraphAddNode(&loopNode, mainGraph, &conditionNode, 1, &loopParams);
+#endif
 
 		
 		bodyGraph = loopParams.conditional.phGraph_out[0];
@@ -1065,7 +932,8 @@ public:
 
 		cudaKernelNodeParams cg1Params = { 0 };
 		void* cg1Args[4] = { &r, &z, &dev_rhoPrev, &dev_rhoNext };
-		cg1Params.func = cg1g<fp>;
+		if constexpr (sizeof(fp) == 4) cg1Params.func = (void*)cg1g_f;
+		else cg1Params.func = (void*)cg1g_d;
 		cg1Params.gridDim = dim3(grid, 1, 1);
 		cg1Params.blockDim = dim3(block, 1, 1);
 		cg1Params.sharedMemBytes = 0;
@@ -1092,7 +960,8 @@ public:
 		//memset(&kernelParams, 0, sizeof(kernelParams));
 		cudaKernelNodeParams cg2Params = { 0 };
 		void* cg2Args[6] = { &slae.data, &slae.rows, &slae.cols, &z, &s, &dev_omega };
-		cg2Params.func = cg2g<fp>;
+		if constexpr (sizeof(fp) == 4) cg2Params.func = (void*)cg2g_f;
+		else cg2Params.func = (void*)cg2g_d;
 		cg2Params.kernelParams = cg2Args;
 		cg2Params.gridDim = dim3(grid, 1, 1);
 		cg2Params.blockDim = dim3(block, 1, 1);
@@ -1106,7 +975,8 @@ public:
 		//memset(&kernelParams, 0, sizeof(kernelParams));
 		cudaKernelNodeParams cg3Params = { 0 };
 		void* cg3Args[6] = { &x, &r, &z, &s, &dev_scalars, &mask };
-		cg3Params.func = cg3g<fp>;
+		if constexpr (sizeof(fp) == 4) cg3Params.func = (void*)cg3g_f;
+		else cg3Params.func = (void*)cg3g_d;
 		cg3Params.kernelParams = cg3Args;
 		cg3Params.gridDim = dim3(grid, 1, 1);
 		cg3Params.blockDim = dim3(block, 1, 1);
@@ -1147,22 +1017,28 @@ public:
 
 		fp rhoPrev = 1.;
 		cudaMemcpyAsync(dev_rhoPrev, &rhoPrev, sizeof(fp), cudaMemcpyHostToDevice, stream);
-		cgInitG<fp> << <grid, block, 0, stream >> > (slae.data, slae.rows, slae.cols, slae.rp, x, r, z, dev_rhoNext, mask);
+		if constexpr (sizeof(fp) == 4)
+			cgInitG_f << <grid, block, 0, stream >> > (slae.data, slae.rows, slae.cols, slae.rp, x, r, z, dev_rhoNext, mask);
+		else
+			cgInitG_d << <grid, block, 0, stream >> > (slae.data, slae.rows, slae.cols, slae.rp, x, r, z, dev_rhoNext, mask);
 		cudaStreamSynchronize(stream);
 		cudaMemcpy(rho, dev_rhoNext, sizeof(fp), cudaMemcpyDeviceToHost);
 
 		while (*rho > eps) {
 
-			cg1g<fp> << <grid, block >> > (r, z, dev_rhoPrev, dev_rhoNext);
+			if constexpr (sizeof(fp) == 4) cg1g_f << <grid, block >> > (r, z, dev_rhoPrev, dev_rhoNext);
+			else cg1g_d << <grid, block >> > (r, z, dev_rhoPrev, dev_rhoNext);
 			cudaDeviceSynchronize();
 
 			cudaMemcpy(dev_rhoPrev, dev_rhoNext, sizeof(fp), cudaMemcpyDeviceToDevice);
 			cudaMemset(dev_scalars, 0, 2 * sizeof(fp));
 
-			cg2g<fp> << <grid, block >> > (slae.data, slae.rows, slae.cols, z, s, dev_omega);
+			if constexpr (sizeof(fp) == 4) cg2g_f << <grid, block >> > (slae.data, slae.rows, slae.cols, z, s, dev_omega);
+			else cg2g_d << <grid, block >> > (slae.data, slae.rows, slae.cols, z, s, dev_omega);
 			cudaDeviceSynchronize();
 
-			cg3g<fp> << <grid, block >> > (x, r, z, s, dev_scalars, mask);
+			if constexpr (sizeof(fp) == 4) cg3g_f << <grid, block >> > (x, r, z, s, dev_scalars, mask);
+			else cg3g_d << <grid, block >> > (x, r, z, s, dev_scalars, mask);
 			cudaDeviceSynchronize();
 
 			cudaMemcpy(rho, dev_rhoNext, sizeof(fp), cudaMemcpyDeviceToHost);
@@ -1202,226 +1078,6 @@ public:
 
 };
 
-
-template<typename fp>
-static __global__ void cgInitGV(fp* data, int* rows, int* cols, fp* rp, fp* x, fp* r, fp* z, fp* rhoNext, bool* mask) {
-	int i = blockIdx.x * blockDim.x + threadIdx.x;
-	int tid = threadIdx.x;
-	__shared__ fp sdata[CGBS];
-	fp sum = {};
-	for (int j = rows[i]; j < rows[i + 1]; ++j)
-		sum += data[j] * x[cols[j]];         //вычисление A.x0
-	fp rk = mask[i] * (rp[i] - sum);
-	r[i] = rk;
-	z[i] = 0;
-	sdata[tid] = rk * rk;
-	__syncthreads();
-
-	//вычисление (r0, r0)
-	for (unsigned int s = blockDim.x / 2; s > 32; s >>= 1) {
-		if (tid < s) {
-			sdata[tid] += sdata[tid + s];
-		}
-		__syncthreads();
-	}
-	if (tid < 32) warpReduce(sdata, tid);
-	if (tid == 0) atomicAdd(rhoNext, sdata[0]);
-}
-
-template <typename fp>
-static __global__ void cg1gv(fp* r, fp* z, fp* rhoPrev, fp* rhoNext) {
-	int i = 2 * (blockIdx.x * blockDim.x + threadIdx.x);
-	fp beta = *rhoNext / *rhoPrev;                  //вычисление beta
-	z[i] = r[i] + beta * z[i];        //вычисление zk
-	z[i + 1] = r[i + 1] + beta * z[i + 1];        //вычисление zk
-}
-
-template <typename fp>
-static __global__ void cg1gv_d(double* r, double* z, double* rhoPrev, double* rhoNext) {
-	int i = 2 * (blockIdx.x * blockDim.x + threadIdx.x);
-	double beta = *rhoNext / *rhoPrev;                  //вычисление beta
-	z[i] = r[i] + beta * z[i];        //вычисление zk
-	z[i + 1] = r[i + 1] + beta * z[i + 1];        //вычисление zk
-
-	double2 zn = {}, zv = {}, rv = {};
-	*reinterpret_cast<float4*>(&zv) = *reinterpret_cast<float4*>(z + i);
-	*reinterpret_cast<float4*>(&rv) = *reinterpret_cast<float4*>(r + i);
-
-	zn.x = rv.x + beta * zv.x;
-	zn.y = rv.y + beta * zv.y;
-}
-
-template <typename fp>
-static __global__ void cg1gv_f(float* r, float* z, float* rhoPrev, float* rhoNext) {
-	int i = 2 * (blockIdx.x * blockDim.x + threadIdx.x);
-	float beta = __fdividef(*rhoNext, *rhoPrev);                  //вычисление beta
-	z[i] = r[i] + beta * z[i];        //вычисление zk
-	z[i + 1] = r[i + 1] + beta * z[i + 1];        //вычисление zk
-
-	float2 zn = {}, zv = {}, rv = {};
-	*reinterpret_cast<float2*>(&zv) = *reinterpret_cast<float2*>(z + i);
-	*reinterpret_cast<float2*>(&rv) = *reinterpret_cast<float2*>(r + i);
-
-	zn.x = rv.x + beta * zv.x;
-	zn.y = rv.y + beta * zv.y;
-}
-
-template<typename fp>
-static __global__ void cg2gv(fp* data, int* rows, int* cols, fp* z, fp* s, fp* omega) {
-	int i = 2 * (blockIdx.x * blockDim.x + threadIdx.x);
-	int tid = threadIdx.x;
-	__shared__ fp sdata[CGBS / 2];
-
-	fp sum1 = {}, sum2 = {};
-	int shift = rows[i + 1] - rows[i];
-	for (int j = rows[i]; j < rows[i + 1]; ++j) {
-		fp ze = z[cols[j]];
-		sum1 += data[j] * ze;         //вычисление A.z
-		sum2 += data[j + shift] * ze;
-	}
-	s[i] = sum1;
-	s[i + 1] = sum2;
-	sdata[tid] = sum1 * z[i] + sum2 * z[i + 1];
-
-	__syncthreads();
-
-	//вычисление (A.z, z)
-	for (unsigned int s = blockDim.x / 2; s > 32; s >>= 1) {
-		if (tid < s)
-			sdata[tid] += sdata[tid + s];
-		__syncthreads();
-	}
-	if (tid < 32) warpReduce(sdata, tid);
-	if (tid == 0) atomicAdd(omega, sdata[0]);
-}
-
-template<typename fp>
-static __global__ void cg2gv_d(double* data, int* rows, int* cols, double* z, double* s, double* omega) {
-	int i = 2 * (blockIdx.x * blockDim.x + threadIdx.x);
-	int tid = threadIdx.x;
-	__shared__ double sdata[CGBS];
-
-	double2 zv = {}, data1 = {}, data2 = {}, sum = {};
-	int2 row = reinterpret_cast<int2*>(&rows[i])[0];
-
-	int shift = row.y - row.x;
-	//for (int j = row.x; j < row.y; j += 2) {
-	//	*reinterpret_cast<float4*>(&zv) = *reinterpret_cast<float4*>(z + cols[j]);
-	//	*reinterpret_cast<float4*>(&data1) = *reinterpret_cast<float4*>(data + j);
-	//	*reinterpret_cast<float4*>(&data2) = *reinterpret_cast<float4*>(data + j + shift);
-	//	sum.x += data1.x * zv.x + data1.y * zv.y;         //вычисление A.z
-	//	sum.y += data2.x * zv.x + data2.y * zv.y;
-	//}
-	for (int j = rows[i]; j < rows[i + 1]; ++j) {
-		double ze = z[cols[j]];
-		sum.x += data[j] * ze;         //вычисление A.z
-		sum.y += data[j + shift] * ze;
-	}
-	reinterpret_cast<float4*>(&s[i])[0] = reinterpret_cast<float4*>(&sum)[0];
-	*reinterpret_cast<float4*>(&zv) = *reinterpret_cast<float4*>(z + i);
-	//sdata[tid] = sum.x * z[i] + sum.y * z[i + 1];
-	sdata[tid] = sum.x * zv.x + sum.y * zv.y;
-
-	__syncthreads();
-
-	//вычисление (A.z, z)
-	for (unsigned s = blockDim.x / 2; s > 32; s >>= 1) {
-		if (tid < s)
-			sdata[tid] += sdata[tid + s];
-		__syncthreads();
-	}
-	if (tid < 32) warpReduce(sdata, tid);
-	if (tid == 0) atomicAdd(omega, sdata[0]);
-}
-
-template <typename fp>
-static __global__ void cg3gv(fp* x, fp* r, fp* z, fp* s, fp* scalars, bool* mask) {
-	int i = 2 * (blockIdx.x * blockDim.x + threadIdx.x);
-	int tid = threadIdx.x;
-	fp omega = *scalars, * rhoNext = scalars + 1, rhoPrev = scalars[2];
-	__shared__ fp sdata[CGBS];
-	fp alpha = rhoPrev / omega;  //вычисление alpha
-
-	x[i] += alpha * z[i];       //вычисление xk
-	x[i + 1] += alpha * z[i + 1];       //вычисление xk
-
-	fp rk1 = r[i] -= mask[i] * alpha * s[i];
-	fp rk2 = r[i + 1] -= mask[i + 1] * alpha * s[i + 1];
-	sdata[tid] = rk1 * rk1 + rk2 * rk2;
-	__syncthreads();
-
-	//вычисление (rk, rk)
-	for (unsigned int s = blockDim.x / 2; s > 32; s >>= 1) {
-		if (tid < s) {
-			sdata[tid] += sdata[tid + s];
-		}
-		__syncthreads();
-	}
-	if (tid < 32) warpReduce(sdata, tid);
-	if (tid == 0) atomicAdd(rhoNext, sdata[0]);
-}
-
-template <typename fp>
-static __global__ void cg3gv_d(double* x, double* r, double* z, double* s, double* scalars, bool* mask) {
-	int i = 2 * (blockIdx.x * blockDim.x + threadIdx.x);
-	int tid = threadIdx.x;
-	double omega = *scalars, * rhoNext = scalars + 1, rhoPrev = scalars[2];
-	__shared__ double sdata[CGBS];
-	double alpha = rhoPrev / omega;  //вычисление alpha
-
-	double2 v = *reinterpret_cast<double2*>(z + i);
-
-	x[i] += alpha * v.x;       //вычисление xk
-	x[i + 1] += alpha * v.y;
-
-	v = *reinterpret_cast<double2*>(s + i);
-
-	double rk1 = r[i] -= mask[i] * alpha * v.x;
-	double rk2 = r[i + 1] -= mask[i + 1] * alpha * v.y;
-	sdata[tid] = rk1 * rk1 + rk2 * rk2;
-	__syncthreads();
-
-	//вычисление (rk, rk)
-	for (unsigned int s = blockDim.x / 2; s > 32; s >>= 1) {
-		if (tid < s) {
-			sdata[tid] += sdata[tid + s];
-		}
-		__syncthreads();
-	}
-	if (tid < 32) warpReduce(sdata, tid);
-	if (tid == 0) atomicAdd(rhoNext, sdata[0]);
-}
-
-template <typename fp>
-static __global__ void cg3gv_f(float* x, float* r, float* z, float* s, float* scalars, bool* mask) {
-	int i = 2 * (blockIdx.x * blockDim.x + threadIdx.x);
-	int tid = threadIdx.x;
-	float omega = *scalars, * rhoNext = scalars + 1, rhoPrev = scalars[2];
-	__shared__ float sdata[CGBS];
-	float alpha = __fdividef(rhoPrev, omega);  //вычисление alpha
-
-	float2 v = *reinterpret_cast<float2*>(z + i);
-
-	x[i] += alpha * v.x;       //вычисление xk
-	x[i + 1] += alpha * v.y;
-
-	v = *reinterpret_cast<float2*>(s + i);
-
-	float rk1 = r[i] -= mask[i] * alpha * v.x;
-	float rk2 = r[i + 1] -= mask[i + 1] * alpha * v.y;
-	sdata[tid] = rk1 * rk1 + rk2 * rk2;
-	__syncthreads();
-
-	//вычисление (rk, rk)
-	for (unsigned int s = blockDim.x / 2; s > 32; s >>= 1) {
-		if (tid < s) {
-			sdata[tid] += sdata[tid + s];
-		}
-		__syncthreads();
-	}
-	if (tid < 32) warpReduce(sdata, tid);
-	if (tid == 0) atomicAdd(rhoNext, sdata[0]);
-}
 
 
 // Vectorized by 2x2
@@ -1500,7 +1156,8 @@ public:
 
 		cudaKernelNodeParams initParams = { 0 };
 		void* initArgs[9] = { &slae.data, &slae.rows, &slae.cols, &slae.rp, &x, &r, &z, &dev_rhoNext, &mask };
-		initParams.func = cgInitGV<fp>;
+		if constexpr (sizeof(fp) == 4) initParams.func = (void*)cgInitGV_f;
+		else initParams.func = (void*)cgInitGV_d;
 		initParams.gridDim = dim3(2 * grid, 1, 1);
 		initParams.blockDim = dim3(block, 1, 1);
 		initParams.sharedMemBytes = 0;
@@ -1508,7 +1165,8 @@ public:
 		initParams.extra = nullptr;
 		cudaGraphAddKernelNode(&initNode, mainGraph, nullptr, 0, &initParams);
 
-		condParams.func = loopCondition<fp>;
+		if constexpr (sizeof(fp) == 4) condParams.func = (void*)loopCondition_f;
+		else condParams.func = (void*)loopCondition_d;
 		condParams.gridDim = dim3(1, 1, 1);
 		condParams.blockDim = dim3(1, 1, 1);
 		condParams.sharedMemBytes = 0;
@@ -1520,7 +1178,12 @@ public:
 		loopParams.conditional.handle = handle;
 		loopParams.conditional.type = cudaGraphCondTypeWhile;
 		loopParams.conditional.size = 1;
+#if CUDA_VERSION >= 13000
 		cudaGraphAddNode(&loopNode, mainGraph, &conditionNode, nullptr, 1, &loopParams);
+#else
+		cudaGraphAddNode(&loopNode, mainGraph, &conditionNode, 1, &loopParams);
+#endif
+		
 
 
 		bodyGraph = loopParams.conditional.phGraph_out[0];
@@ -1528,8 +1191,8 @@ public:
 
 		cudaKernelNodeParams cg1Params = { 0 };
 		void* cg1Args[4] = { &r, &z, &dev_rhoPrev, &dev_rhoNext };
-		if constexpr (sizeof(fp) == 4) cg1Params.func = cg1gv_f<float>;
-		else cg1Params.func = cg1gv_d<double>;
+		if constexpr (sizeof(fp) == 4) cg1Params.func = (void*)cg1gv_f;
+		else cg1Params.func = (void*)cg1gv_d;
 		cg1Params.gridDim = dim3(grid, 1, 1);
 		cg1Params.blockDim = dim3(block, 1, 1);
 		cg1Params.sharedMemBytes = 0;
@@ -1556,9 +1219,8 @@ public:
 		//memset(&kernelParams, 0, sizeof(kernelParams));
 		cudaKernelNodeParams cg2Params = { 0 };
 		void* cg2Args[6] = { &slae.data, &slae.rows, &slae.cols, &z, &s, &dev_omega };
-		//cg2Params.func = cg2gv<fp>;
-		if constexpr(sizeof(fp) == 4) cg2Params.func = cg2g_f<float>;
-		else cg2Params.func = cg2g_d<double>;
+		if constexpr(sizeof(fp) == 4) cg2Params.func = (void*)cg2g_fv;
+		else cg2Params.func = (void*)cg2g_dv;
 		cg2Params.kernelParams = cg2Args;
 		cg2Params.gridDim = dim3(2 * grid, 1, 1);
 		cg2Params.blockDim = dim3(block, 1, 1);
@@ -1572,8 +1234,8 @@ public:
 		//memset(&kernelParams, 0, sizeof(kernelParams));
 		cudaKernelNodeParams cg3Params = { 0 };
 		void* cg3Args[6] = { &x, &r, &z, &s, &dev_scalars, &mask };
-		if constexpr (sizeof(fp) == 4) cg3Params.func = cg3gv_f<float>;
-		else cg3Params.func = cg3gv_d<double>;
+		if constexpr (sizeof(fp) == 4) cg3Params.func = (void*)cg3gv_f;
+		else cg3Params.func = (void*)cg3gv_d;
 		cg3Params.kernelParams = cg3Args;
 		cg3Params.gridDim = dim3(grid, 1, 1);
 		cg3Params.blockDim = dim3(block, 1, 1);
@@ -1791,7 +1453,7 @@ public:
 		cudaKernelNodeParams cg1Params = { 0 };
 		
 		void* cg1Args[6] = { &slae.data, &slae.rows, &slae.cols, &z, &s, &dev_omega };
-		cg1Params.func = cg1gt<fp>;
+		cg1Params.func = (void*)cg1gt<fp>;
 		cg1Params.kernelParams = cg1Args;
 		cg1Params.gridDim = dim3(grid, 1, 1);
 		cg1Params.blockDim = dim3(block, 1, 1);
@@ -1803,7 +1465,7 @@ public:
 		cudaKernelNodeParams cg2Params = { 0 };
 		void* cg2Args[6] = { &x, &r, &z, &s, &dev_scalars, &mask };
 		//void* cg2Args[8] = { &x, &r, &z, &s, &dev_omega, &dev_rhoPrev, &dev_rhoNext, &mask };
-		cg2Params.func = cg2gt<fp>;
+		cg2Params.func = (void*)cg2gt<fp>;
 		cg2Params.kernelParams = cg2Args;
 		cg2Params.gridDim = dim3(grid, 1, 1);
 		cg2Params.blockDim = dim3(block, 1, 1);
@@ -1814,7 +1476,7 @@ public:
 
 		cudaKernelNodeParams cg3Params = { 0 };
 		void* cg3Args[4] = { &r, &z, &dev_rhoPrev, &dev_rhoNext };
-		cg3Params.func = cg3gt<fp>;
+		cg3Params.func = (void*)cg3gt<fp>;
 		cg3Params.gridDim = dim3(grid, 1, 1);
 		cg3Params.blockDim = dim3(block, 1, 1);
 		cg3Params.sharedMemBytes = 0;
