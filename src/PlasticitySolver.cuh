@@ -14,6 +14,9 @@
 #include "Material.cuh"
 
 
+#include "RotorCG.h" // TEMP
+
+
 //Плоское состояние (напряжённое, деформированное)
 enum class planeCond { stress, strain };
 

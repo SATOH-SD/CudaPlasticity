@@ -920,7 +920,7 @@ public:
 		loopParams.conditional.handle = handle;
 		loopParams.conditional.type = cudaGraphCondTypeWhile;
 		loopParams.conditional.size = 1;
-#if CUDA_VERSION >= 13000
+#if CUDART_VERSION >= 13000
 		cudaGraphAddNode(&loopNode, mainGraph, &conditionNode, nullptr, 1, &loopParams);
 #else
 		cudaGraphAddNode(&loopNode, mainGraph, &conditionNode, 1, &loopParams);
@@ -996,6 +996,7 @@ public:
 	~ConjGradCudaGW() {
 		cudaStreamDestroy(stream);
 		cudaGraphExecDestroy(execGraph);
+		cudaGraphDestroy(mainGraph);
 		cudaGraphDestroy(bodyGraph);
 
 		cudaFree(r);
@@ -1154,6 +1155,7 @@ public:
 		cudaGraphCreate(&mainGraph, 0);
 		cudaGraphConditionalHandleCreate(&handle, mainGraph);
 
+		//cudaGraphNode_t initNode;
 		cudaKernelNodeParams initParams = { 0 };
 		void* initArgs[9] = { &slae.data, &slae.rows, &slae.cols, &slae.rp, &x, &r, &z, &dev_rhoNext, &mask };
 		if constexpr (sizeof(fp) == 4) initParams.func = (void*)cgInitGV_f;
@@ -1178,7 +1180,7 @@ public:
 		loopParams.conditional.handle = handle;
 		loopParams.conditional.type = cudaGraphCondTypeWhile;
 		loopParams.conditional.size = 1;
-#if CUDA_VERSION >= 13000
+#if CUDART_VERSION >= 13000
 		cudaGraphAddNode(&loopNode, mainGraph, &conditionNode, nullptr, 1, &loopParams);
 #else
 		cudaGraphAddNode(&loopNode, mainGraph, &conditionNode, 1, &loopParams);
@@ -1242,7 +1244,7 @@ public:
 		cg3Params.sharedMemBytes = 0;
 		cg3Params.extra = nullptr;
 		//auto error = cudaGraphAddKernelNode(&cg3Node, graph, nullptr, 0, &cg3Params);
-		cudaGraphAddKernelNode(&cg3Node, bodyGraph, { &cg2Node }, 1, &cg3Params);
+		cudaGraphAddKernelNode(&cg3Node, bodyGraph, &cg2Node, 1, &cg3Params);
 
 		//std::cout << cudaGetErrorString(error) << "\n";
 		//cudaGraphAddMemcpyNode1D(&rhoFromDevNode, graph, { &cg3Node }, 1, rho, dev_rhoNext, sizeof(fp), cudaMemcpyDeviceToHost);
@@ -1255,6 +1257,7 @@ public:
 	~ConjGradCudaV2() {
 		cudaStreamDestroy(stream);
 		cudaGraphExecDestroy(execGraph);
+		cudaGraphDestroy(mainGraph);
 		cudaGraphDestroy(bodyGraph);
 
 		cudaFree(r);

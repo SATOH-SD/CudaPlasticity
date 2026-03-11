@@ -377,7 +377,8 @@ double PlasticitySolver::solveElastCPU() {
 	SparseSLAE spK(mesh, 2);
 	initConditions(spK);
 	//ConjGradSolver cjs(spK);
-	CGV2 cjs(spK, uv.data(), kinMask);
+	//CGV2 cjs(spK, uv.data(), kinMask);
+	JCGV cjs(spK, uv.data(), kinMask, preconditioning, false, false, 2, lines, lineRows, lineCount);
 	
 	std::cout << "\rMatrix forming...";
 	fillGlobalStiffness(K, spK);
@@ -385,7 +386,8 @@ double PlasticitySolver::solveElastCPU() {
 	std::cout << "\rSLAE solving...   ";
 	size_t insideIter = 0;
 	//cjs.solve(uv.data(), kinMask, insideIter, 1e-7);
-	cjs.solve(insideIter, 1e-7);
+	//cjs.solve(insideIter, 1e-7);
+	insideIter = cjs.solve(1e-7);
 
 	std::cout << "\rStress calculation...";
 	updateParameters();
@@ -453,9 +455,13 @@ double PlasticitySolver::solveCPU() {
 	//PCG cjs(spK, uv.data(), kinMask);
 	//CGV2 cjs(spK, uv.data(), kinMask);
 	//BJCG2 cjs(spK, uv.data(), kinMask);
-	JCGV cjs(spK, uv.data(), kinMask, 2, lines, lineRows, lineCount);
+	//JCGV_ cjs(spK, uv.data(), kinMask, 2, lines, lineRows, lineCount);
+	JCGV cjs(spK, uv.data(), kinMask, preconditioning, true, false, 2, lines, lineRows, lineCount);
 	//cjs.setLinesDim(2);
-	//cjs.updateNorm();
+
+	//TEMP
+	//cgInitCPU(spK.N, spK.data, (unsigned*)spK.rows, (unsigned*)spK.cols, spK.rp, uv.data(), preconditioning, true, false);
+	//cgInitCuda(spK.N, spK.data, (unsigned*)spK.rows, (unsigned*)spK.cols, spK.rp, uv.data(), preconditioning, true, false);
 	
 	//std::list<size_t> iterHistory;  //DEBUG
 
@@ -463,13 +469,23 @@ double PlasticitySolver::solveCPU() {
 	double relErr = 0.;
 	do {
 		fillGlobalStiffness(K, spK);
-		cjs.precond();
+		//cjs.precond();
 		//cjs.checkSpector();
+
+		//TEMP
+		/*switch (iterNum) {
+		case 0: spK.saveToFile("slae0.txt"); break;
+		case 1: spK.saveToFile("slae1.txt"); break;
+		case 2: spK.saveToFile("slae2.txt"); break;
+		}*/
 		
-		size_t insideIter = 0;
+		//size_t insideIter = 0;
+		unsigned insideIter = 0;
 		//cjs.solve2(uv.data(), kinMask, insideIter, 1e-7);
 		//cjs.solve(insideIter, 1e-7);
 		insideIter = cjs.solve(1e-7);
+		//cgSolveCPU(1e-7, &insideIter);
+		//cgSolveCuda(1e-7, &insideIter);
 		
 		updateParameters(iterNum);
 		relErr = exitCondition();
@@ -494,6 +510,10 @@ double PlasticitySolver::solveCPU() {
 	//DEBUG
 	//saveArray(uv.data(), uv.size(), "../data/refDispls.txt");
 	//std::cout << "\nresidual: " << checkArray(uv.data(), uv.size(), "../data/refDispls.txt") << "\n";
+
+	//TEMP
+	//cgFreeCPU();
+	cgFreeCuda();
 
 	plastSolved = true;
 

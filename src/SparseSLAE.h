@@ -84,44 +84,63 @@ public:
 		int dataSize = dataWidth * mesh.nodeCount;
 
 		int* allLinks = new int[dataSize];
-		int* uniqueLinks = new int[dataSize];
-#pragma omp parallel for
-		for (int i = 0; i < mesh.nodeCount; ++i)
-			linkCounts[i] = 0;
-		
-		for (int e = 0; e < 3 * mesh.count3; e += 3)
-			for (int i = e; i < e + 3; ++i) {
-				int node = mesh.elem3[i];
-				for (int j = e; j < e + 3; ++j) {   //заполнение связей с повторениями
-					if (i != j) {
-						int link = mesh.elem3[j];
-						allLinks[node * dataWidth + linkCounts[node]] = link;
-						++linkCounts[node];
-					}
+		memset(linkCounts, 0, mesh.nodeCount * sizeof(int));
+
+		omp_lock_t* locks = new omp_lock_t[mesh.nodeCount];
+		for (unsigned i = 0; i < mesh.nodeCount; ++i)
+			omp_init_lock(locks + i);
+
+#pragma omp parallel
+		{
+#pragma omp for
+			for (int e = 0; e < 3 * mesh.count3; e += 3)
+				for (int i = e; i < e + 3; ++i) {
+					int node = mesh.elem3[i];
+					omp_set_lock(locks + node);
+					int dataPos = node * dataWidth + linkCounts[node];
+					linkCounts[node] += 2;
+					omp_unset_lock(locks + node);
+					for (int j = e; j < e + 3; ++j)    //заполнение связей с повторениями
+						if (i != j) {
+							int link = mesh.elem3[j];
+							allLinks[dataPos++] = link;
+						}
 				}
-			}
-		for (int e = 0; e < 4 * mesh.count4; e += 4)
-			for (int i = e; i < e + 4; ++i) {
-				int node = mesh.elem4[i];
-				for (int j = e; j < e + 4; ++j) {   //заполнение связей с повторениями
-					if (i != j) {
-						int link = mesh.elem4[j];
-						allLinks[node * dataWidth + linkCounts[node]] = link;
-						++linkCounts[node];
-					}
+#pragma omp for
+			for (int e = 0; e < 4 * mesh.count4; e += 4)
+				for (int i = e; i < e + 4; ++i) {
+					int node = mesh.elem4[i];
+					omp_set_lock(locks + node);
+					int dataPos = node * dataWidth + linkCounts[node];
+					linkCounts[node] += 3;
+					omp_unset_lock(locks + node);
+					for (int j = e; j < e + 4; ++j)    //заполнение связей с повторениями
+						if (i != j) {
+							int link = mesh.elem4[j];
+							allLinks[dataPos++] = link;
+						}
 				}
-			}
-		for (int e = 0; e < 8 * mesh.count8; e += 8)
-			for (int i = e; i < e + 8; ++i) {
-				int node = mesh.elem8[i];
-				for (int j = e; j < e + 8; ++j) {   //заполнение связей с повторениями
-					if (i != j) {
-						int link = mesh.elem8[j];
-						allLinks[node * dataWidth + linkCounts[node]] = link;
-						++linkCounts[node];
-					}
+#pragma omp for
+			for (int e = 0; e < 8 * mesh.count8; e += 8)
+				for (int i = e; i < e + 8; ++i) {
+					int node = mesh.elem8[i];
+					omp_set_lock(locks + node);
+					int dataPos = node * dataWidth + linkCounts[node];
+					linkCounts[node] += 7;
+					omp_unset_lock(locks + node);
+					for (int j = e; j < e + 8; ++j)    //заполнение связей с повторениями
+						if (i != j) {
+							int link = mesh.elem8[j];
+							allLinks[dataPos++] = link;
+						}
 				}
-			}
+		}
+
+		for (unsigned i = 0; i < mesh.nodeCount; ++i)
+			omp_destroy_lock(locks + i);
+		delete[] locks;
+		/*for (int i = 0; i < mesh.nodeCount; ++i)
+			std::cout << linkCounts[i] << "\n";*/
 
 		int* unLinkCount = new int[mesh.nodeCount];
 #pragma omp parallel for
@@ -131,17 +150,23 @@ public:
 				int link = allLinks[node * dataWidth + i];
 				bool no = true;
 				for (int j = 0; j < unLinkCount[node]; ++j) {
-					if (uniqueLinks[dataWidth * node + j] == link) {
+					if (allLinks[dataWidth * node + j] == link) {
 						no = false;
 						break;
 					}
 				}
-				if (no) {  //заполнение связей без повторонений с избытком по памяти
-					uniqueLinks[dataWidth * node + unLinkCount[node]] = link;
+				if (no) {  //заполнение связей без повторений с избытком по памяти
+					allLinks[dataWidth * node + unLinkCount[node]] = link;
 					++unLinkCount[node];
 				}
 			}
 		}
+		//for (int i = 0; i < mesh.nodeCount; ++i)
+		//	//if (unLinkCount[i] != 8 && unLinkCount[i] != 5)
+		//	if (unLinkCount[i] != 20 && unLinkCount[i] != 12 && unLinkCount[i] != 7)
+		//		std::cout << unLinkCount[i] << "\n";
+		//std::cin.get();
+
 		rp = new double[mesh.nodeCount * dim];
 		rows = new int[mesh.nodeCount * dim + 1];
 		adjPos = new int[mesh.nodeCount + 1];
@@ -164,7 +189,8 @@ public:
 		for (int node = 0; node < mesh.nodeCount; ++node) {
 			int begin = adjPos[node], size = adjPos[node + 1] - begin;
 			for (int link = 0; link < unLinkCount[node]; ++link) {
-				adj[begin + link] = uniqueLinks[node * dataWidth + link];
+				//adj[begin + link] = uniqueLinks[node * dataWidth + link];
+				adj[begin + link] = allLinks[node * dataWidth + link];
 			}
 			for (int i = 0; i < dim; ++i)
 				rows[dim * node + i + 1] = begin * dim * dim + (i + 1) * size * dim + (dim * node + i + 1) * dim;
@@ -191,7 +217,6 @@ public:
 		//std::clog << "formed\n";
 		delete[] linkCounts;
 		delete[] allLinks;
-		delete[] uniqueLinks;
 		delete[] unLinkCount;
 	}
 
@@ -263,6 +288,24 @@ public:
 
 	void printStruct() const {
 
+	}
+
+	void saveToFile(const std::string& fileName) {
+		std::ofstream file(fileName, std::ios_base::out);
+		file << N << "\n";
+		for (int i = 0; i <= N; ++i)
+			file << rows[i] << " ";
+		file << "\n";
+		for (int i = 0; i < rows[N]; ++i)
+			file << cols[i] << " ";
+		file << "\n";
+		for (int i = 0; i < rows[N]; ++i)
+			file << data[i] << " ";
+		file << "\n";
+		for (int i = 0; i < N; ++i)
+			file << rp[i] << " ";
+		file.close();
+		std::cout << "file saved\n";
 	}
 
 };

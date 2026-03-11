@@ -2,7 +2,9 @@
 
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
-#include "cuda.h"
+
+__global__ void norm2_f(float* data, float* norm);
+__global__ void norm2_d(double* data, double* norm);
 
 __global__ void cgInitG_f(float* data, int* rows, int* cols, float* rp, float* x, float* r, float* z, float* rhoNext, bool* mask);
 __global__ void cgInitG_d(double* data, int* rows, int* cols, double* rp, double* x, double* r, double* z, double* rhoNext, bool* mask);

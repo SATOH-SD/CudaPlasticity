@@ -265,7 +265,7 @@ void plasticityTest() {
 
 	Mesh mesh;
 	mesh.useCuda = false;
-	mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 48, 32, 1, 1);
+	mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 48, 32, 1, 0);
 	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 8 * 48, 8 * 32, 1, 0);
 	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 96 * 3, 64 * 3, 1);
 	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 144, 96, 2);
@@ -298,10 +298,11 @@ void plasticityTest() {
 	//PlasticitySolver ps(m, grid, lc);
 	PlasticitySolver ps(m, mesh, lc);
 	//ps.setPlainCondition(strain);
-	ps.floatBoost = true;
+	//ps.floatBoost = true;
 	//ps.iterOutput = false;
 	//ps.solve();
 	//ps.floatBoost = false;
+	ps.preconditioning = false;
 	ps.solve();
 	ps.polarCoord = true;
 	ps.saveAsVtk("../data/holePlatePlast.vtk");
@@ -948,7 +949,8 @@ void miniSpeedTest() {
 	const int tests = 9;
 	double time[tests] = {};
 
-	const std::string title = "CPU plasticity test (1st order, preconditioned, vectorized)";
+	//const std::string title = "CPU plasticity test (1st order, preconditioned, vectorized)";
+	const std::string title = "RotorCG test";
 
 	Mesh mesh;
 	mesh.useCuda = false;
@@ -1625,7 +1627,54 @@ void testSector() {
 }
 
 
+void diskSectorTest() {
+	Mesh mesh;
+	mesh.loadFromFile("../data/DiskSector1.inp");
+	mesh.renumByDirection({ 0., 1. });
+	mesh.useCuda = false;
+	//mesh.saveAsVtk("../data/DiskSector1.vtk");
+
+	LoadConditions load;
+	load.fixBorderVert(3);
+	//load.fixVertAxis(0.);
+	load.fixAlongLine(2, 1.919'862'177'193'762);
+	load.setRotation(2000);
+	load.setForce(1, { 100e6, 0 }, true);
+
+	Material m;
+	m.setLinearPlast(100e9, 170e6, 10e9);
+	m.nu = 0.33;
+	m.setThickness(25);
+	m.rho = 4500 * 1e-9;
+	//m.setThickness([](vec2 p) { \
+		double r = sqrt(p.x * p.x + p.y * p.y); \
+		if (r >= 160 && r <= 200) return 40.; \
+		if (r >= 145 && r < 160) return 40 - sqrt(225 - (r - 145) * (r - 145)); \
+		if (r > 200 && r <= 215) return 40 - sqrt(225 - (215 - r) * (215 - r)); \
+		return 25.; \
+		});
+
+	PlasticitySolver ps(m, mesh, load);
+	ps.preconditioning = false;
+	ps.iterOutput = true;
+	ps.solve();
+	ps.polarCoord = true;
+	ps.saveAsVtk("../data/DiskSector1.vtk");
+}
+
+
+//#include "RotorCG.h"  //TEMP
+
+//void testRotorCG() {  // TEMP
+//	char name[100];
+//	std::cout << checkDevice(name, 100) << "\n";
+//	std::cout << name << std::endl;
+//}
+
+
 int main() { //выбор запускаемого теста
+
+	//testRotorCG();
 
 	//meshTest();
 
@@ -1641,7 +1690,7 @@ int main() { //выбор запускаемого теста
 
 	//energyConvTest();
 
-	//plasticityTest();
+	plasticityTest();
 
 	//kirschConvTest();
 
@@ -1659,7 +1708,7 @@ int main() { //выбор запускаемого теста
 
 	//speedTest2();
 
-	miniSpeedTest();
+	//miniSpeedTest();
 
 	//beamTest();
 
@@ -1676,5 +1725,7 @@ int main() { //выбор запускаемого теста
 	//pointForceTest();
 
 	//testSector();
+
+	//diskSectorTest();
 
 }

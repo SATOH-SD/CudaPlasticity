@@ -23,7 +23,13 @@ link_directories(${CUDA_LIBRARIES})
 find_package(OpenMP REQUIRED)
 set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 
+if(MSVC)
+    add_compile_options(/openmp)
+    target_link_libraries(${PROJECT_NAME} PRIVATE OpenMP::OpenMP_CXX)
+endif()
 set_property(TARGET ${PROJECT_NAME} APPEND_STRING PROPERTY CUDA_HOST_COMPILER_OPTIONS " /openmp")
+#list(APPEND CUDA_NVCC_FLAGS -Xcompiler "/openmp")
+#target_compile_options(${PROJECT_NAME} PRIVATE "/openmp")
 
 message (STATUS "OpenMP version: ${OpenMP_CXX_VERSION_MAJOR}")
 

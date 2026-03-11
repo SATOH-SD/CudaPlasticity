@@ -1,5 +1,11 @@
 ﻿#include "CGKernels.cuh"
 
+#ifndef __CUDACC__  
+#define __CUDACC__
+#endif
+#include <device_functions.h>
+#include <cuda.h>
+
 template <typename fp>
 static __device__ void warpReduce(volatile fp* sdata, int tid) {
 	sdata[tid] += sdata[tid + 32];

@@ -364,3 +364,4 @@ FodyWeavers.xsd
 
 ./build/
 /CMakeLists_.txt
+/build
