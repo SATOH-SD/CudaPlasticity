@@ -78,7 +78,7 @@ set(CMAKE_LINKER_LINK "C:/Program Files/Microsoft Visual Studio/2022/Community/V
 set(CMAKE_LINKER_LLD "lld-link")
 set(CMAKE_CUDA_COMPILER_LINKER "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/link.exe")
 set(CMAKE_CUDA_COMPILER_LINKER_ID "MSVC")
-set(CMAKE_CUDA_COMPILER_LINKER_VERSION 14.44.35217.0)
+set(CMAKE_CUDA_COMPILER_LINKER_VERSION 14.44.35222.0)
 set(CMAKE_CUDA_COMPILER_LINKER_FRONTEND_VARIANT MSVC)
 set(CMAKE_AR "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lib.exe")
 set(CMAKE_RANLIB ":")

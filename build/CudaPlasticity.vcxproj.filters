@@ -4,9 +4,16 @@
     <ClCompile Include="C:\Projects\C++\IT\CudaPlasticity\src\Main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\CG.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="C:\Projects\C++\IT\CudaPlasticity\src\CG.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="C:\Projects\C++\IT\CudaPlasticity\src\ConjGradSolver.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Projects\C++\IT\CudaPlasticity\src\LoadConditions.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="C:\Projects\C++\IT\CudaPlasticity\src\Mesh.h">
@@ -21,10 +28,11 @@
     <ClInclude Include="C:\Projects\C++\IT\CudaPlasticity\src\ptrs.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\src\CGKernels.cuh" />
-    <ClInclude Include="..\src\CG.h" />
   </ItemGroup>
   <ItemGroup>
+    <CudaCompile Include="..\src\CGKernels.cu">
+      <Filter>Source Files</Filter>
+    </CudaCompile>
     <CudaCompile Include="..\src\ConjGradCuda.cu">
       <Filter>Source Files</Filter>
     </CudaCompile>
@@ -46,15 +54,15 @@
     <CudaCompile Include="..\src\vec2.cu">
       <Filter>Source Files</Filter>
     </CudaCompile>
-    <CudaCompile Include="..\src\CGKernels.cu" />
+    <CudaCompile Include="..\src\CudaCG.cu" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="C:\Projects\C++\IT\CudaPlasticity\CMakeLists.txt" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="C:\Projects\C++\IT\CudaPlasticity\src\CGKernels.cuh" />
     <None Include="C:\Projects\C++\IT\CudaPlasticity\src\CudaSparseSLAE.cuh" />
     <None Include="C:\Projects\C++\IT\CudaPlasticity\src\GaussScheme.cuh" />
-    <None Include="..\src\LoadConditions.h" />
     <None Include="C:\Projects\C++\IT\CudaPlasticity\src\Material.cuh" />
     <None Include="C:\Projects\C++\IT\CudaPlasticity\src\PlasticitySolver.cuh" />
     <None Include="C:\Projects\C++\IT\CudaPlasticity\src\StaticMatrix.cuh" />
