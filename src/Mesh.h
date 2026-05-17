@@ -93,6 +93,11 @@ public:
 			cudaSetDevice(0);
 			cudaDeviceProp deviceProp;
 			cudaGetDeviceProperties(&deviceProp, 0);
+			/*int driverVersion;
+			cudaDriverGetVersion(&driverVersion);
+			std::cout << driverVersion << "\n";*/
+			/*std::cout << deviceProp.sharedMemPerBlock << "\n";
+			std::cout << deviceProp.sharedMemPerMultiprocessor << "\n";*/
 			std::cout << "Detected " << deviceProp.name << " " \
 				<< round((double)deviceProp.totalGlobalMem / 1'048'576.) << " MB\n" \
 				<< "Running native mode...\n\n";

@@ -961,6 +961,7 @@ void deleteCommas(std::string& str) {
 
 //Загрузить из файла
 bool Mesh::loadFromFile(const std::string& fileName) {
+	std::cout << "Mesh loading...";
 	if (fileName.substr(fileName.size() - 4) != ".inp") {
 		throw "Unknown mesh file format";
 	}
@@ -995,13 +996,20 @@ bool Mesh::loadFromFile(const std::string& fileName) {
 		cudaFree(dev_skewAngles); dev_skewAngles = nullptr;
 	}
 
+	unsigned maxIndex = 0, input = 0;
+
 	std::ifstream file(fileName);
 	std::string line;
 	while (std::getline(file, line)) {
 		if (line == "*NODE")
 			while (std::getline(file, line)) {
-				if (line.size() != 0 && line[0] != '*')
+				if (line.size() != 0 && line[0] != '*') {
 					++nodeCount;
+					std::istringstream ss(line);
+					ss >> input;
+					if (input > maxIndex)
+						maxIndex = input;
+				}
 				else break;
 			}
 		else if (line.substr(0, 8) == "*ELEMENT") {
@@ -1009,9 +1017,9 @@ bool Mesh::loadFromFile(const std::string& fileName) {
 			for (int i = 0; i < line.length(); ++i) {
 				if (line.substr(i, 5) == "TYPE=") {
 					i += 5;
-					std::clog << line.substr(i, 3) << "\n";
+					//std::clog << line.substr(i, 3) << "\n";
 					if (line.substr(i, 3) == "S3R") {
-						std::clog << "TYPE3!\n";
+						//std::clog << "TYPE3!\n";
 						while (std::getline(file, line)) {
 							if (line.size() != 0 && line[0] != '*')
 								++count4;
@@ -1026,14 +1034,14 @@ bool Mesh::loadFromFile(const std::string& fileName) {
 						}
 					}
 					else if (line.substr(i, 3) == "S8R") {
-						std::clog << "TYPE8!\n";
+						//std::clog << "TYPE8!\n";
 						while (std::getline(file, line)) {
 							if (line.size() != 0 && line[0] != '*')
 								++count8;
 							else break;
 						}
 					}
-					std::cout << line << "\n";
+					//std::cout << line << "\n";
 					break;
 				}
 			}
@@ -1055,12 +1063,16 @@ bool Mesh::loadFromFile(const std::string& fileName) {
 				if (line != "*MPC") break;
 			}
 	}
-	file.close();
+	file.clear();
+	file.seekg(0);
+
+	//std::cout << "maxIndex = " << maxIndex << "\n";
+
 	//std::clog << "nodes: " << nodeCount \
 		<< "\nelem3: " << count3 \
 		<< "\nelem4: " << count4 \
 		<< "\nelem8: " << count8 << "\n\n";
-	nodeCount -= bordersCount;
+	//nodeCount -= bordersCount;
 	elem3 = new int[3 * count3];
 	elem4 = new int[4 * count4];
 	elem8 = new int[8 * count8];
@@ -1070,10 +1082,10 @@ bool Mesh::loadFromFile(const std::string& fileName) {
 		secOrdNodes[i] = false;
 	borders = new int*[bordersCount];
 	fillPos();
-	int curElem3 = 0, curElem4 = 0, curElem8 = 0, curBorder = 0, input = 0;
-	std::list<int> superNodes;
+	int curNode = 0, curElem3 = 0, curElem4 = 0, curElem8 = 0, curBorder = 0;
+	std::list<unsigned> superNodes;
+	hptr<unsigned> indexes(maxIndex + 1);
 
-	file.open(fileName);
 	while (std::getline(file, line)) {
 		if (line == "*NODE")
 			while (std::getline(file, line)) {
@@ -1082,9 +1094,13 @@ bool Mesh::loadFromFile(const std::string& fileName) {
 					//std::clog << line << "\n";
 					std::istringstream ss(line);
 					ss >> input;
-					--input;
+					indexes[input] = curNode;
+					ss >> node[curNode].x >> node[curNode].y;
+					++curNode;
+
+					/*--input;
 					if (input < nodeCount)
-						ss >> node[input].x >> node[input].y;
+						ss >> node[input].x >> node[input].y;*/
 					//std::clog << input << " " << node[input].x << " " << node[input].y << "\n";
 				}
 				else break;
@@ -1095,7 +1111,7 @@ bool Mesh::loadFromFile(const std::string& fileName) {
 				if (line.substr(i, 5) == "TYPE=") {
 					i += 5;
 					if (line.substr(i, 3) == "S3R") {
-						std::cout << "read S3R\n";
+						//std::cout << "read S3R\n";
 						while (std::getline(file, line)) {
 							if (line.size() != 0 && line[0] != '*') {
 								deleteCommas(line);
@@ -1104,7 +1120,7 @@ bool Mesh::loadFromFile(const std::string& fileName) {
 								int begin = 4 * curElem4;
 								for (int i = 0; i < 3; ++i) {
 									ss >> elem4[begin + i];
-									--elem4[begin + i];
+									//--elem4[begin + i];
 								}
 								elem4[begin + 3] = elem4[begin + 2];
 								++curElem4;
@@ -1113,7 +1129,7 @@ bool Mesh::loadFromFile(const std::string& fileName) {
 						}
 					}
 					else if (line.substr(i, 2) == "S4") {
-						std::cout << "read S4\n";
+						//std::cout << "read S4\n";
 						while (std::getline(file, line)) {
 							if (line.size() != 0 && line[0] != '*') {
 								deleteCommas(line);
@@ -1122,7 +1138,7 @@ bool Mesh::loadFromFile(const std::string& fileName) {
 								int begin = 4 * curElem4;
 								for (int i = 0; i < 4; ++i) {
 									ss >> elem4[begin + i];
-									--elem4[begin + i];
+									//--elem4[begin + i];
 								}
 								++curElem4;
 							}
@@ -1138,7 +1154,7 @@ bool Mesh::loadFromFile(const std::string& fileName) {
 								int begin = 8 * curElem8;
 								for (int i = 0; i < 8; ++i) {
 									ss >> elem8[begin + i];
-									--elem8[begin + i];
+									//--elem8[begin + i];
 								}
 								for (int i = 4; i < 8; ++i)
 									secOrdNodes[elem8[begin + i]] = true;
@@ -1164,9 +1180,10 @@ bool Mesh::loadFromFile(const std::string& fileName) {
 						if (curPoint == 0) {
 							int super;
 							ss >> super;
-							superNodes.push_back(super - 1);
+							//superNodes.push_back(super - 1);
+							superNodes.push_back(super);
 						}
-						--borders[curBorder][curPoint];
+						//--borders[curBorder][curPoint];
 						++curPoint;
 					}
 					else break;
@@ -1177,8 +1194,52 @@ bool Mesh::loadFromFile(const std::string& fileName) {
 	}
 	file.close();
 
-	for (int s : superNodes)
-		std::cout << "super " << s << "\n";
+	/*for (unsigned i = 0; i < maxIndex + 1; ++i)
+		std::cout << indexes[i] << " ";*/
+
+	/*for (int s : superNodes)
+		std::cout << "super " << s << "\n";*/
+
+	for (unsigned i = 0; i < 3 * count3; ++i)
+		elem3[i] = indexes[elem3[i]];
+	for (unsigned i = 0; i < 4 * count4; ++i)
+		elem4[i] = indexes[elem4[i]];
+	for (unsigned i = 0; i < 8 * count8; ++i)
+		elem8[i] = indexes[elem8[i]];
+	for (unsigned i = 0; i < bordersCount; ++i)
+		for (unsigned j = 0; j < borderLength[i]; ++j)
+			borders[i][j] = indexes[borders[i][j]];
+	for (unsigned& super : superNodes)
+		super = indexes[super];
+	for (unsigned super : superNodes) {
+		for (unsigned i = super + 1; i < nodeCount; ++i)
+			node[i - 1] = node[i];
+		--nodeCount;
+		for (unsigned i = 0; i < 3 * count3; ++i)
+			if (elem3[i] > super)
+				--elem3[i];
+		for (unsigned i = 0; i < 4 * count4; ++i)
+			if (elem4[i] > super)
+				--elem4[i];
+		for (unsigned i = 0; i < 8 * count8; ++i)
+			if (elem8[i] > super)
+				--elem8[i];
+		for (unsigned i = 0; i < bordersCount; ++i)
+			for (unsigned j = 0; j < borderLength[i]; ++j)
+				if (borders[i][j] > super)
+					--borders[i][j];
+		for (unsigned& rest : superNodes)
+			if (rest > super)
+				--rest;
+	}
+
+	/*for (unsigned i = 0; i < bordersCount; ++i) {
+		for (unsigned j = 0; j < borderLength[i]; ++j)
+			std::cout << borders[i][j] << " ";
+		std::cout << "\n";
+	}*/
+	//for (unsigned i = 0; i < 4 * count4; ++i)
+		//std::cout << elem4[i] << (elem4[i] > 100000 ? "------" : " ");
 
 	/*for (int s : superNodes) {
 		--nodeCount;
@@ -1197,6 +1258,8 @@ bool Mesh::loadFromFile(const std::string& fileName) {
 	ramSaved = true;
 	analysed = false;
 	if (useCuda) meshToGPU();
+
+	std::cout << "\rMesh loaded: " << nodeCount << " nodes, " << elemCount() << " elements\n\n";
 
 	//DEBUG
 	/*int maxNodeId = 0;

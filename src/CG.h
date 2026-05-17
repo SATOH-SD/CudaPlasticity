@@ -114,4 +114,6 @@ private:
 
 	void precond();
 
+	void precondAndNorm();
+
 };

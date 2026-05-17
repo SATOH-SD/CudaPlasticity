@@ -1,4 +1,6 @@
-﻿#pragma once
+﻿// LEGACY
+
+#pragma once
 
 #include "CudaSparseSLAE.cuh"
 
@@ -6,17 +8,18 @@
 
 #include "cuda.h"
 
+#include "DeviceCommon.cuh"
 #include "CGKernels.cuh"
 
-template <typename fp>
-static __device__ void warpReduce(volatile fp* sdata, int tid) {
-	sdata[tid] += sdata[tid + 32];
-	sdata[tid] += sdata[tid + 16];
-	sdata[tid] += sdata[tid + 8];
-	sdata[tid] += sdata[tid + 4];
-	sdata[tid] += sdata[tid + 2];
-	sdata[tid] += sdata[tid + 1];
-}
+//template <typename fp>
+//static __device__ void warpReduce(volatile fp* sdata, int tid) {
+//	sdata[tid] += sdata[tid + 32];
+//	sdata[tid] += sdata[tid + 16];
+//	sdata[tid] += sdata[tid + 8];
+//	sdata[tid] += sdata[tid + 4];
+//	sdata[tid] += sdata[tid + 2];
+//	sdata[tid] += sdata[tid + 1];
+//}
 
 template<typename fp>
 static __global__ void cgInitSparseMask(fp* data, int* rows, int* cols, fp* rp, fp* xNext, fp* rNext, fp* zNext, fp* rNextScal, bool* mask) {
@@ -674,8 +677,8 @@ public:
 
 		cudaKernelNodeParams cg1Params = { 0 };
 		void* cg1Args[4] = { &r, &z, &dev_rhoPrev, &dev_rhoNext };
-		if constexpr (sizeof(fp) == 4) cg1Params.func = (void*)cg1g_f;
-		else cg1Params.func = (void*)cg1g_d;
+		if constexpr (sizeof(fp) == 4) cg1Params.func = (void*)cg1_f;
+		else cg1Params.func = (void*)cg1_d;
 		cg1Params.gridDim = dim3(grid, 1, 1);
 		cg1Params.blockDim = dim3(block, 1, 1);
 		cg1Params.sharedMemBytes = 0;
@@ -702,8 +705,8 @@ public:
 		//memset(&kernelParams, 0, sizeof(kernelParams));
 		cudaKernelNodeParams cg2Params = { 0 };
 		void* cg2Args[6] = { &slae.data, &slae.rows, &slae.cols, &z, &s, &dev_omega };
-		if constexpr (sizeof(fp) == 4) cg2Params.func = (void*)cg2g_f;
-		else cg2Params.func = (void*)cg2g_d;
+		if constexpr (sizeof(fp) == 4) cg2Params.func = (void*)cg2_f;
+		else cg2Params.func = (void*)cg2_d;
 		cg2Params.kernelParams = cg2Args;
 		cg2Params.gridDim = dim3(grid, 1, 1);
 		cg2Params.blockDim = dim3(block, 1, 1);
@@ -717,8 +720,8 @@ public:
 		//memset(&kernelParams, 0, sizeof(kernelParams));
 		cudaKernelNodeParams cg3Params = { 0 };
 		void* cg3Args[6] = { &x, &r, &z, &s, &dev_scalars, &mask };
-		if constexpr (sizeof(fp) == 4) cg3Params.func = (void*)cg3g_f;
-		else cg3Params.func = (void*)cg3g_d;
+		if constexpr (sizeof(fp) == 4) cg3Params.func = (void*)cg3_f;
+		else cg3Params.func = (void*)cg3_d;
 		cg3Params.kernelParams = cg3Args;
 		cg3Params.gridDim = dim3(grid, 1, 1);
 		cg3Params.blockDim = dim3(block, 1, 1);
@@ -758,27 +761,27 @@ public:
 		fp rhoPrev = 1.;
 		cudaMemcpyAsync(dev_rhoPrev, &rhoPrev, sizeof(fp), cudaMemcpyHostToDevice, stream);
 		if (sizeof(fp) == 4)
-			cgInitG_f<<<grid, block, 0, stream>>>(slae.data, slae.rows, slae.cols, slae.rp, x, r, z, dev_rhoNext, mask);
+			cgInit_f<<<grid, block, 0, stream>>>(slae.data, slae.rows, slae.cols, slae.rp, x, r, z, dev_rhoNext, mask);
 		else
-			cgInitG_d<<<grid, block, 0, stream>>>(slae.data, slae.rows, slae.cols, slae.rp, x, r, z, dev_rhoNext, mask);
+			cgInit_d<<<grid, block, 0, stream>>>(slae.data, slae.rows, slae.cols, slae.rp, x, r, z, dev_rhoNext, mask);
 		cudaStreamSynchronize(stream);
 		cudaMemcpy(rho, dev_rhoNext, sizeof(fp), cudaMemcpyDeviceToHost);
 
 		while (*rho > eps) {
 
-			if constexpr (sizeof(fp) == 4) cg1g_f<<<grid, block>>>(r, z, dev_rhoPrev, dev_rhoNext);
-			else cg1g_d<<<grid, block>>>(r, z, dev_rhoPrev, dev_rhoNext);
+			if constexpr (sizeof(fp) == 4) cg1_f<<<grid, block>>>(r, z, dev_rhoPrev, dev_rhoNext);
+			else cg1_d<<<grid, block>>>(r, z, dev_rhoPrev, dev_rhoNext);
 			cudaDeviceSynchronize();
 
 			cudaMemcpy(dev_rhoPrev, dev_rhoNext, sizeof(fp), cudaMemcpyDeviceToDevice);
 			cudaMemset(dev_scalars, 0, 2 * sizeof(fp));
 
-			if constexpr (sizeof(fp) == 4) cg2g_f<<<grid, block>>>(slae.data, slae.rows, slae.cols, z, s, dev_omega);
-			else cg2g_d<<<grid, block>>>(slae.data, slae.rows, slae.cols, z, s, dev_omega);
+			if constexpr (sizeof(fp) == 4) cg2_f<<<grid, block>>>(slae.data, slae.rows, slae.cols, z, s, dev_omega);
+			else cg2_d<<<grid, block>>>(slae.data, slae.rows, slae.cols, z, s, dev_omega);
 			cudaDeviceSynchronize();
 
-			if constexpr (sizeof(fp) == 4) cg3g_f<<<grid, block>>>(x, r, z, s, dev_scalars, mask);
-			else cg3g_d<<<grid, block>>>(x, r, z, s, dev_scalars, mask);
+			if constexpr (sizeof(fp) == 4) cg3_f<<<grid, block>>>(x, r, z, s, dev_scalars, mask);
+			else cg3_d<<<grid, block>>>(x, r, z, s, dev_scalars, mask);
 			cudaDeviceSynchronize();
 
 			cudaMemcpy(rho, dev_rhoNext, sizeof(fp), cudaMemcpyDeviceToHost);
@@ -800,9 +803,9 @@ public:
 		fp rhoPrev = 1.;
 		cudaMemcpyAsync(dev_rhoPrev, &rhoPrev, sizeof(fp), cudaMemcpyHostToDevice, stream);
 		if constexpr (sizeof(fp) == 4)
-			cgInitG_f<<<grid, block, 0, stream>>>(slae.data, slae.rows, slae.cols, slae.rp, x, r, z, dev_rhoNext, mask);
+			cgInit_f<<<grid, block, 0, stream>>>(slae.data, slae.rows, slae.cols, slae.rp, x, r, z, dev_rhoNext, mask);
 		else
-			cgInitG_d<<<grid, block, 0, stream>>>(slae.data, slae.rows, slae.cols, slae.rp, x, r, z, dev_rhoNext, mask);
+			cgInit_d<<<grid, block, 0, stream>>>(slae.data, slae.rows, slae.cols, slae.rp, x, r, z, dev_rhoNext, mask);
 		cudaStreamSynchronize(stream);
 		cudaMemcpy(rho, dev_rhoNext, sizeof(fp), cudaMemcpyDeviceToHost);
 
@@ -898,8 +901,8 @@ public:
 
 		cudaKernelNodeParams initParams = { 0 };
 		void* initArgs[9] = { &slae.data, &slae.rows, &slae.cols, &slae.rp, &x, &r, &z, &dev_rhoNext, &mask};
-		if constexpr (sizeof(fp) == 4) initParams.func = (void*)cgInitG_f;
-		else initParams.func = (void*)cgInitG_d;
+		if constexpr (sizeof(fp) == 4) initParams.func = (void*)cgInit_f;
+		else initParams.func = (void*)cgInit_d;
 		initParams.gridDim = dim3(grid, 1, 1);
 		initParams.blockDim = dim3(block, 1, 1);
 		initParams.sharedMemBytes = 0;
@@ -907,8 +910,8 @@ public:
 		initParams.extra = nullptr;
 		cudaGraphAddKernelNode(&initNode, mainGraph, nullptr, 0, &initParams);
 
-		if constexpr (sizeof(fp) == 4) condParams.func = (void*)loopCondition_f;
-		else condParams.func = (void*)loopCondition_d;
+		if constexpr (sizeof(fp) == 4) condParams.func = (void*)loopCondition_f_;
+		else condParams.func = (void*)loopCondition_d_;
 		condParams.gridDim = dim3(1, 1, 1);
 		condParams.blockDim = dim3(1, 1, 1);
 		condParams.sharedMemBytes = 0;
@@ -932,8 +935,8 @@ public:
 
 		cudaKernelNodeParams cg1Params = { 0 };
 		void* cg1Args[4] = { &r, &z, &dev_rhoPrev, &dev_rhoNext };
-		if constexpr (sizeof(fp) == 4) cg1Params.func = (void*)cg1g_f;
-		else cg1Params.func = (void*)cg1g_d;
+		if constexpr (sizeof(fp) == 4) cg1Params.func = (void*)cg1_f;
+		else cg1Params.func = (void*)cg1_d;
 		cg1Params.gridDim = dim3(grid, 1, 1);
 		cg1Params.blockDim = dim3(block, 1, 1);
 		cg1Params.sharedMemBytes = 0;
@@ -960,8 +963,8 @@ public:
 		//memset(&kernelParams, 0, sizeof(kernelParams));
 		cudaKernelNodeParams cg2Params = { 0 };
 		void* cg2Args[6] = { &slae.data, &slae.rows, &slae.cols, &z, &s, &dev_omega };
-		if constexpr (sizeof(fp) == 4) cg2Params.func = (void*)cg2g_f;
-		else cg2Params.func = (void*)cg2g_d;
+		if constexpr (sizeof(fp) == 4) cg2Params.func = (void*)cg2_f;
+		else cg2Params.func = (void*)cg2_d;
 		cg2Params.kernelParams = cg2Args;
 		cg2Params.gridDim = dim3(grid, 1, 1);
 		cg2Params.blockDim = dim3(block, 1, 1);
@@ -975,8 +978,8 @@ public:
 		//memset(&kernelParams, 0, sizeof(kernelParams));
 		cudaKernelNodeParams cg3Params = { 0 };
 		void* cg3Args[6] = { &x, &r, &z, &s, &dev_scalars, &mask };
-		if constexpr (sizeof(fp) == 4) cg3Params.func = (void*)cg3g_f;
-		else cg3Params.func = (void*)cg3g_d;
+		if constexpr (sizeof(fp) == 4) cg3Params.func = (void*)cg3_f;
+		else cg3Params.func = (void*)cg3_d;
 		cg3Params.kernelParams = cg3Args;
 		cg3Params.gridDim = dim3(grid, 1, 1);
 		cg3Params.blockDim = dim3(block, 1, 1);
@@ -1019,27 +1022,27 @@ public:
 		fp rhoPrev = 1.;
 		cudaMemcpyAsync(dev_rhoPrev, &rhoPrev, sizeof(fp), cudaMemcpyHostToDevice, stream);
 		if constexpr (sizeof(fp) == 4)
-			cgInitG_f << <grid, block, 0, stream >> > (slae.data, slae.rows, slae.cols, slae.rp, x, r, z, dev_rhoNext, mask);
+			cgInit_f<<<grid, block, 0, stream>>>(slae.data, slae.rows, slae.cols, slae.rp, x, r, z, dev_rhoNext, mask);
 		else
-			cgInitG_d << <grid, block, 0, stream >> > (slae.data, slae.rows, slae.cols, slae.rp, x, r, z, dev_rhoNext, mask);
+			cgInit_d<<<grid, block, 0, stream>>>(slae.data, slae.rows, slae.cols, slae.rp, x, r, z, dev_rhoNext, mask);
 		cudaStreamSynchronize(stream);
 		cudaMemcpy(rho, dev_rhoNext, sizeof(fp), cudaMemcpyDeviceToHost);
 
 		while (*rho > eps) {
 
-			if constexpr (sizeof(fp) == 4) cg1g_f << <grid, block >> > (r, z, dev_rhoPrev, dev_rhoNext);
-			else cg1g_d << <grid, block >> > (r, z, dev_rhoPrev, dev_rhoNext);
+			if constexpr (sizeof(fp) == 4) cg1_f << <grid, block >> > (r, z, dev_rhoPrev, dev_rhoNext);
+			else cg1_d << <grid, block >> > (r, z, dev_rhoPrev, dev_rhoNext);
 			cudaDeviceSynchronize();
 
 			cudaMemcpy(dev_rhoPrev, dev_rhoNext, sizeof(fp), cudaMemcpyDeviceToDevice);
 			cudaMemset(dev_scalars, 0, 2 * sizeof(fp));
 
-			if constexpr (sizeof(fp) == 4) cg2g_f << <grid, block >> > (slae.data, slae.rows, slae.cols, z, s, dev_omega);
-			else cg2g_d << <grid, block >> > (slae.data, slae.rows, slae.cols, z, s, dev_omega);
+			if constexpr (sizeof(fp) == 4) cg2_f << <grid, block >> > (slae.data, slae.rows, slae.cols, z, s, dev_omega);
+			else cg2_d << <grid, block >> > (slae.data, slae.rows, slae.cols, z, s, dev_omega);
 			cudaDeviceSynchronize();
 
-			if constexpr (sizeof(fp) == 4) cg3g_f << <grid, block >> > (x, r, z, s, dev_scalars, mask);
-			else cg3g_d << <grid, block >> > (x, r, z, s, dev_scalars, mask);
+			if constexpr (sizeof(fp) == 4) cg3_f << <grid, block >> > (x, r, z, s, dev_scalars, mask);
+			else cg3_d << <grid, block >> > (x, r, z, s, dev_scalars, mask);
 			cudaDeviceSynchronize();
 
 			cudaMemcpy(rho, dev_rhoNext, sizeof(fp), cudaMemcpyDeviceToHost);
@@ -1122,6 +1125,8 @@ public:
 		: slae(sparseSlae), mask(_mask), x(initSol) {
 		//cudaMalloc((void**)&xNext, slae.memLen * sizeof(fp));
 
+		//std::cout << "log1\n";
+
 		cudaMalloc((void**)&r, slae.memLen * sizeof(fp));
 		cudaMalloc((void**)&z, slae.memLen * sizeof(fp));
 		cudaMalloc((void**)&s, slae.memLen * sizeof(fp));
@@ -1148,6 +1153,8 @@ public:
 
 		cudaStreamCreate(&stream);
 
+		//std::cout << "log2\n";
+
 		int block = CGBS; std::min((int)CGBS, slae.N);
 		int grid = slae.memLen / CGBS / 2;
 
@@ -1158,8 +1165,8 @@ public:
 		//cudaGraphNode_t initNode;
 		cudaKernelNodeParams initParams = { 0 };
 		void* initArgs[9] = { &slae.data, &slae.rows, &slae.cols, &slae.rp, &x, &r, &z, &dev_rhoNext, &mask };
-		if constexpr (sizeof(fp) == 4) initParams.func = (void*)cgInitGV_f;
-		else initParams.func = (void*)cgInitGV_d;
+		if constexpr (sizeof(fp) == 4) initParams.func = (void*)cgInitV2_f;
+		else initParams.func = (void*)cgInitV2_d;
 		initParams.gridDim = dim3(2 * grid, 1, 1);
 		initParams.blockDim = dim3(block, 1, 1);
 		initParams.sharedMemBytes = 0;
@@ -1167,14 +1174,18 @@ public:
 		initParams.extra = nullptr;
 		cudaGraphAddKernelNode(&initNode, mainGraph, nullptr, 0, &initParams);
 
-		if constexpr (sizeof(fp) == 4) condParams.func = (void*)loopCondition_f;
-		else condParams.func = (void*)loopCondition_d;
+		//std::cout << "log3\n";
+
+		if constexpr (sizeof(fp) == 4) condParams.func = (void*)loopCondition_f_;
+		else condParams.func = (void*)loopCondition_d_;
 		condParams.gridDim = dim3(1, 1, 1);
 		condParams.blockDim = dim3(1, 1, 1);
 		condParams.sharedMemBytes = 0;
 		condParams.kernelParams = condArgs;
 		condParams.extra = nullptr;
 		cudaGraphAddKernelNode(&conditionNode, mainGraph, &initNode, 1, &condParams);
+
+		//std::cout << "log4\n";
 
 		cudaGraphNodeParams loopParams = { cudaGraphNodeTypeConditional };
 		loopParams.conditional.handle = handle;
@@ -1186,15 +1197,15 @@ public:
 		cudaGraphAddNode(&loopNode, mainGraph, &conditionNode, 1, &loopParams);
 #endif
 		
-
+		//std::cout << "log5\n";
 
 		bodyGraph = loopParams.conditional.phGraph_out[0];
 
 
 		cudaKernelNodeParams cg1Params = { 0 };
 		void* cg1Args[4] = { &r, &z, &dev_rhoPrev, &dev_rhoNext };
-		if constexpr (sizeof(fp) == 4) cg1Params.func = (void*)cg1gv_f;
-		else cg1Params.func = (void*)cg1gv_d;
+		if constexpr (sizeof(fp) == 4) cg1Params.func = (void*)cg1v2_f;
+		else cg1Params.func = (void*)cg1v2_d;
 		cg1Params.gridDim = dim3(grid, 1, 1);
 		cg1Params.blockDim = dim3(block, 1, 1);
 		cg1Params.sharedMemBytes = 0;
@@ -1203,6 +1214,7 @@ public:
 		//cudaGraphAddKernelNode(&cg1Node, graph, { &memsetNode }, 1, &kernelNodeParams);
 		cudaGraphAddKernelNode(&cg1Node, bodyGraph, nullptr, 0, &cg1Params);
 
+		//std::cout << "log6\n";
 		//std::cout << cudaGetErrorString(cudaGetLastError()) << "\n";
 
 		cudaGraphAddMemcpyNode1D(&rhoOnDevNode, bodyGraph, { &cg1Node }, 1, dev_rhoPrev, dev_rhoNext, sizeof(fp), cudaMemcpyDeviceToDevice);
@@ -1221,8 +1233,8 @@ public:
 		//memset(&kernelParams, 0, sizeof(kernelParams));
 		cudaKernelNodeParams cg2Params = { 0 };
 		void* cg2Args[6] = { &slae.data, &slae.rows, &slae.cols, &z, &s, &dev_omega };
-		if constexpr(sizeof(fp) == 4) cg2Params.func = (void*)cg2g_fv;
-		else cg2Params.func = (void*)cg2g_dv;
+		if constexpr(sizeof(fp) == 4) cg2Params.func = (void*)cg2_fv;
+		else cg2Params.func = (void*)cg2_dv;
 		cg2Params.kernelParams = cg2Args;
 		cg2Params.gridDim = dim3(2 * grid, 1, 1);
 		cg2Params.blockDim = dim3(block, 1, 1);
@@ -1231,13 +1243,14 @@ public:
 		cudaGraphAddKernelNode(&cg2Node, bodyGraph, { &memsetNode }, 1, &cg2Params);
 		//cudaGraphAddKernelNode(&cg2Node, graph, nullptr, 0, &cg2Params);
 
+		//std::cout << "log7\n";
 		//std::cout << cudaGetErrorString(cudaGetLastError()) << "\n";
 
 		//memset(&kernelParams, 0, sizeof(kernelParams));
 		cudaKernelNodeParams cg3Params = { 0 };
 		void* cg3Args[6] = { &x, &r, &z, &s, &dev_scalars, &mask };
-		if constexpr (sizeof(fp) == 4) cg3Params.func = (void*)cg3gv_f;
-		else cg3Params.func = (void*)cg3gv_d;
+		if constexpr (sizeof(fp) == 4) cg3Params.func = (void*)cg3v2_f;
+		else cg3Params.func = (void*)cg3v2_d;
 		cg3Params.kernelParams = cg3Args;
 		cg3Params.gridDim = dim3(grid, 1, 1);
 		cg3Params.blockDim = dim3(block, 1, 1);
@@ -1246,12 +1259,16 @@ public:
 		//auto error = cudaGraphAddKernelNode(&cg3Node, graph, nullptr, 0, &cg3Params);
 		cudaGraphAddKernelNode(&cg3Node, bodyGraph, &cg2Node, 1, &cg3Params);
 
+		//std::cout << "log8\n";
+
 		//std::cout << cudaGetErrorString(error) << "\n";
 		//cudaGraphAddMemcpyNode1D(&rhoFromDevNode, graph, { &cg3Node }, 1, rho, dev_rhoNext, sizeof(fp), cudaMemcpyDeviceToHost);
 
 		cudaGraphAddKernelNode(&conditionNode, bodyGraph, &cg3Node, 1, &condParams);
 
 		cudaGraphInstantiate(&execGraph, mainGraph, nullptr, nullptr, 0);
+
+		//std::cout << "log9\n";
 	}
 
 	~ConjGradCudaV2() {

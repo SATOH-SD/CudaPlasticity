@@ -27,10 +27,9 @@ JCGV::JCGV(SparseSLAE& slae, double* solVector, bool* mask, bool preconditioning
 			rxPtr = lineCount ? &JCGV::rxP1Lines : &JCGV::rxP1;
 		}
 		if (updatingMatrix)
-			preSolve = &JCGV::precond;
+			preSolve = &JCGV::precondAndNorm;
 		else {
-			if (updatingRhs)
-				preSolve = &JCGV::updateNormP;
+			preSolve = &JCGV::updateNormP;
 			precond();
 		}
 	}
@@ -200,8 +199,11 @@ double JCGV::rxP2Lines(double alpha) {
 	}
 	double rho = 0.;
 #pragma omp parallel for reduction (+ : rho)
-	for (int i = 0; i < slae.N; i += 2)
+	for (int i = 0; i < slae.N; i += 2) {
+		/*q[i] = DR[i] * r[i], \
+			q[i + 1] = DR[i + 1] * r[i + 1];*/
 		rho += q[i] * r[i] + q[i + 1] * r[i + 1];
+	}
 	return rho;
 }
 
@@ -347,7 +349,7 @@ unsigned JCGV::solve1(double eps) {
 
 		rhoNext = (this->*rxPtr)(alpha);
 
-		if (iterNum > slae.N) break;
+		if (iterNum >= slae.N) break;
 		++iterNum;
 	}
 	return iterNum;
@@ -409,7 +411,7 @@ unsigned JCGV::solveP1(double eps) {
 
 		rhoNext = (this->*rxPtr)(alpha);
 
-		if (iterNum > slae.N) break;
+		if (iterNum >= slae.N) break;
 		++iterNum;
 	}
 	return iterNum;
@@ -478,7 +480,7 @@ unsigned JCGV::solve2(double eps) {
 
 		rhoNext = (this->*rxPtr)(alpha);
 
-		if (iterNum > slae.N) break;
+		if (iterNum >= slae.N) break;
 		++iterNum;
 	}
 	return iterNum;
@@ -512,13 +514,13 @@ unsigned JCGV::solveP2(double eps) {
 			r[i + 1] = lines[2 * k + 1] * len;
 		len = q[i] * lines[2 * k] + q[i + 1] * lines[2 * k + 1];
 		q[i] = lines[2 * k] * len, \
-		q[i + 1] = lines[2 * k + 1] * len;
+			q[i + 1] = lines[2 * k + 1] * len;
 	}
 #pragma omp parallel for reduction (+ : rhoNext)
 	for (int i = 0; i < slae.N; i += 2)
 		rhoNext += q[i] * r[i] + q[i + 1] * r[i + 1];
 
-	std::cout << "rho = " << rhoNext << "\n";
+	//std::cout << "rho = " << rhoNext << "\n";
 
 	double eps2b = eps * eps * normB;
 
@@ -552,7 +554,7 @@ unsigned JCGV::solveP2(double eps) {
 
 		rhoNext = (this->*rxPtr)(alpha);
 
-		if (iterNum > slae.N) break;
+		if (iterNum >= slae.N) break;
 		++iterNum;
 	}
 	return iterNum;
@@ -626,7 +628,7 @@ unsigned JCGV::solve3(double eps) {
 
 		rhoNext = (this->*rxPtr)(alpha);
 
-		if (iterNum > slae.N) break;
+		if (iterNum >= slae.N) break;
 		++iterNum;
 	}
 	return iterNum;
@@ -705,34 +707,34 @@ unsigned JCGV::solveP3(double eps) {
 
 		rhoNext = (this->*rxPtr)(alpha);
 
-		if (iterNum > slae.N) break;
+		if (iterNum >= slae.N) break;
 		++iterNum;
 	}
 	return iterNum;
 }
 
 void JCGV::updateNorm() {
-	double sum = 0.;
-#pragma omp parallel for reduction(+ : sum)
+	double norm = 0.;
+#pragma omp parallel for reduction(+ : norm)
 	for (int i = 0; i < slae.N; ++i)
-		sum += slae.rp[i] * slae.rp[i];
-	if (sum < 1e-200)
-#pragma omp parallel for reduction(+ : sum)
+		norm += slae.rp[i] * slae.rp[i];
+	if (norm < 1e-200)
+#pragma omp parallel for reduction(+ : norm)
 		for (int i = 0; i < slae.N; ++i)
-			sum += x[i] * x[i];
-	normB = sum;
+			norm += x[i] * x[i];
+	normB = norm;
 }
 
 void JCGV::updateNormP() {
-	double sum = 0.;
-#pragma omp parallel for reduction(+ : sum)
+	double norm = 0.;
+#pragma omp parallel for reduction(+ : norm)
 	for (int i = 0; i < slae.N; ++i)
-		sum += DR[i] * slae.rp[i] * slae.rp[i];
-	if (sum < 1e-200)
-#pragma omp parallel for reduction(+ : sum)
+		norm += DR[i] * slae.rp[i] * slae.rp[i];
+	if (norm < 1e-200)
+#pragma omp parallel for reduction(+ : norm)
 		for (int i = 0; i < slae.N; ++i)
-			sum += DR[i] * x[i] * x[i];
-	normB = sum;
+			norm += DR[i] * x[i] * x[i];
+	normB = norm;
 }
 
 void JCGV::precond() {
@@ -749,5 +751,33 @@ void JCGV::precond() {
 		}
 		DR[i] = 1. / sqrt(sum);
 	}
-	updateNormP();
+	//updateNormP();
+}
+
+void JCGV::precondAndNorm() {
+	double norm = 0.;
+#pragma omp parallel for reduction(+ : norm)
+	for (int i = 0; i < slae.N; ++i) {
+		double sum = 0.;
+		for (unsigned j = slae.rows[i]; j < slae.rows[i + 1]; ++j) {
+			/*if (slae.cols[j] == i) {
+				sum = slae.data[j];
+				break;
+			}*/
+			double el = slae.data[j];
+			sum += el * el;
+		}
+		DR[i] = 1. / sqrt(sum);
+		norm += DR[i] * slae.rp[i] * slae.rp[i];
+	}
+	/*for (unsigned j = 0; j < lineCount; ++j) {
+		unsigned k = lineRows[j];
+		for (unsigned i = 0; i < dim; ++i)
+			DR[k + i] = DR[k + i] * 0.0001;
+	}*/
+	if (norm < 1e-200)
+#pragma omp parallel for reduction(+ : norm)
+		for (int i = 0; i < slae.N; ++i)
+			norm += DR[i] * x[i] * x[i];
+	normB = norm;
 }

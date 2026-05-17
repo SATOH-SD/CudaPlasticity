@@ -10,11 +10,11 @@
 #include "Mesh.h"
 #include "LoadConditions.h"
 #include "SparseSLAE.h"
-#include "ConjGradCuda.cu"
+#include "CudaSparseSLAE.cuh"
 #include "Material.cuh"
 
 
-#include "RotorCG.h" // TEMP
+//#include "RotorCG.h" // TEMP
 
 
 //Плоское состояние (напряжённое, деформированное)
@@ -90,6 +90,10 @@ private:
 	
 	hptr<double> lines;
 	hptr<unsigned> lineRows;
+
+	dptr<float> df_lines;
+	dptr<double> dd_lines;
+	dptr<unsigned> dev_lineRows;
 
 	StaticMatrix<3, 3, double>* C = nullptr;
 	StaticMatrix<2, 3, double>* B3 = nullptr;
@@ -461,7 +465,15 @@ public:
 			int i = e + mesh.elemPos[1];
 			volume += elemVol;
 			//energy += (sxx[i] * exx[i] + syy[i] * eyy[i] + 2. * tau[i] * gamma[i]) * 0.5 * elemVol;
-			energy += intensityE[i] * intensityS[i] * 0.5 * elemVol;
+			if (intensityS[i] > m.sigmaT) {
+				double E_T = m.sigmaT / m.E;
+				energy += m.sigmaT * E_T * 0.5 * elemVol;
+				double h_eps = (intensityE[i] - E_T) * 0.01;
+				for (int j = 0; j < 100; ++j)
+					energy += h_eps * 0.5 * (m.f(E_T + h_eps * j) + m.f(E_T + h_eps * (j + 1))) * elemVol;
+			}
+			else
+				energy += intensityE[i] * intensityS[i] * 0.5 * elemVol;
 		}
 		return energy;// / volume;
 	}

@@ -1,11 +1,14 @@
 ﻿#include "PlasticitySolver.cuh"
 
+#include "DeviceCommon.cuh"
 #include "StaticMatrix.cuh"
 #include "SymMatrix.cuh"
 
-#include "ConjGradSolver.h"
+//#include "ConjGradSolver.h"
+//#include "ConjGradCuda.cu";
+
 #include "CG.h"
-#include "ConjGradCuda.cu";
+#include "CudaCG.cu"
 
 //#include "cuda.h"
 
@@ -395,7 +398,7 @@ double PlasticitySolver::solveElastCPU() {
 	solvingTime += omp_get_wtime();
 	std::cout << "\rSolved               " \
 		<< "\nSLAE iterations: " << insideIter \
-		<< "\nTime: " << solvingTime << " s" << std::endl;
+		<< "\nTime: " << solvingTime << " s\n" << std::endl;
 	plastSolved = false;
 
 	delete[] h;
@@ -461,7 +464,8 @@ double PlasticitySolver::solveCPU() {
 
 	//TEMP
 	//cgInitCPU(spK.N, spK.data, (unsigned*)spK.rows, (unsigned*)spK.cols, spK.rp, uv.data(), preconditioning, true, false);
-	//cgInitCuda(spK.N, spK.data, (unsigned*)spK.rows, (unsigned*)spK.cols, spK.rp, uv.data(), preconditioning, true, false);
+	//cgInitCuda(spK.N, spK.data, (unsigned*)spK.rows, (unsigned*)spK.cols, spK.rp, uv.data(), 0 * preconditioning, true, false);
+	//cgInitCudaSD(spK.N, spK.data, (unsigned*)spK.rows, (unsigned*)spK.cols, spK.rp, uv.data(), preconditioning, true, true);
 	
 	//std::list<size_t> iterHistory;  //DEBUG
 
@@ -486,6 +490,8 @@ double PlasticitySolver::solveCPU() {
 		insideIter = cjs.solve(1e-7);
 		//cgSolveCPU(1e-7, &insideIter);
 		//cgSolveCuda(1e-7, &insideIter);
+		//cgSolveCudaSD(1e-5, 1e-7, &insideIter);
+		//cgSolveCudaSDNG(1e-5, 1e-7, &insideIter);
 		
 		updateParameters(iterNum);
 		relErr = exitCondition();
@@ -496,11 +502,12 @@ double PlasticitySolver::solveCPU() {
 		++iterNum;
 		//if (iterNum >= 50) break;
 	} while (relErr > 1e-5);
+	//} while (iterNum < 3);
 	calcPlastDeform();
 	solvingTime += omp_get_wtime();
 	std::cout << "\n\rIterations: " << iterNum << "                                             " \
 		<< "\nExit error: " << exitCondition() \
-		<< "\nTime: " << solvingTime << " s" << std::endl;
+		<< "\nTime: " << solvingTime << " s\n" << std::endl;
 
 	//DEBUG
 	/*for (size_t iter : iterHistory)
@@ -513,7 +520,8 @@ double PlasticitySolver::solveCPU() {
 
 	//TEMP
 	//cgFreeCPU();
-	cgFreeCuda();
+	//cgFreeCuda();
+	//cgFreeCudaSD();
 
 	plastSolved = true;
 
@@ -603,9 +611,10 @@ double PlasticitySolver::solveElastCUDA() {
 	initConditions_(spK, dd_uv);
 	//std::clog << "log3\n";
 	//
-	ConjGradCuda2<double> cjc(spK);
+	//ConjGradCuda2<double> cjc(spK);
 	//ConjGradCudaGW<double> cjc(spK, dd_uv, dev_kinNodes);
 	//ConjGradCudaV2<double> cjc(spK, dd_uv, dev_kinNodes);
+	
 
 	//delete[] h;
 	//h = nullptr;
@@ -618,8 +627,12 @@ double PlasticitySolver::solveElastCUDA() {
 	//std::cout << "hash " << spK.matrixHash() << "\n";
 
 	std::cout << "\rSLAE solving...   ";
+	CudaJCGV<double> cjc((unsigned)spK.N, spK.data, (unsigned*)spK.rows, (unsigned*)spK.cols, spK.rp, \
+		dd_uv, dev_kinNodes, preconditioning, false, false, 1, 512, \
+		dd_lines, dev_lineRows, lineCount);
 	size_t insideIter = 0;
-	cjc.solve(dd_uv, dev_kinNodes, insideIter, 1e-7);
+	//cjc.solve(dd_uv, dev_kinNodes, insideIter, 1e-7);
+	insideIter = cjc.solve(1e-7);
 
 	std::cout << "\rStress calculation...";
 	updateParamDouble();
@@ -628,7 +641,7 @@ double PlasticitySolver::solveElastCUDA() {
 	ramSaved = false;
 	std::cout << "\rSolved               " \
 		<< "\nSLAE iterations: " << insideIter \
-		<< "\nTime: " << solvingTime << " s" << std::endl;
+		<< "\nTime: " << solvingTime << " s\n" << std::endl;
 	plastSolved = false;
 
 	cudaFree(dd_h);
@@ -644,6 +657,7 @@ double PlasticitySolver::solveCUDA() {
 	std::cout << "K size: " << K.size() << "\n";
 	std::cout << "Strip width: " << 2 * K.width() + 1 << "\n";
 	mesh.meshToGPU();
+	//std::cout << "log1\n";
 
 	double solvingTime = -omp_get_wtime();
 
@@ -651,31 +665,44 @@ double PlasticitySolver::solveCUDA() {
 		calcThickness();
 		copyThickness();
 	}
+	//std::cout << "log2\n";
 	calcBsCuda();
+	//std::cout << "log3\n";
 	initPlastParams();
+	//std::cout << "log4\n";
 
 	CudaSparseSLAE<double> spK(mesh, 2);
 	initConditions_(spK, dd_uv);
+	//std::cout << "log5\n";
 	
 	delete[] h;
 	h = nullptr;
 
+	//std::cout << "log6\n";
+
 	//ConjGradCuda<double> cjc(spK);
 	//ConjGradCuda2<double> cjc(spK);
 	//ConjGradCudaGW<double> cjc(spK, dd_uv, dev_kinNodes);
-	ConjGradCudaV2<double> cjc(spK, dd_uv, dev_kinNodes);
+	//ConjGradCudaV2<double> cjc(spK, dd_uv, dev_kinNodes);
+	CudaJCGV<double> cjc((unsigned)spK.N, spK.data, (unsigned*)spK.rows, (unsigned*)spK.cols, spK.rp, \
+		dd_uv, dev_kinNodes, preconditioning, true, false, 1, 512, \
+		dd_lines, dev_lineRows, lineCount);
+
+	//std::cout << "log7\n";
 
 	size_t iterNum = 0;
 	double relErr = 0.;
 	do {
-		
 		fillGlobalStiffness(K, spK);
 		//if (iterNum == 0) std::cout << "hash " << spK.matrixHash() << " " << spK.rpHash() << "\n";
 
 		size_t insideIter = 0;
-		cjc.solve(dd_uv, dev_kinNodes, insideIter, 1e-7);
+		//cjc.solve(dd_uv, dev_kinNodes, insideIter, 1e-7);
+		insideIter = cjc.solve(1e-7);
+		//insideIter = cjc.solveDebug(1e-7);
 
 		updateParamDouble();
+
 		relErr = exitCondition(dd_intensityS, dd_tableS, dd_exit);
 		printIter(iterNum, insideIter, relErr);
 		//std::cout << "hash " << spK.matrixHash() << "";
@@ -687,7 +714,7 @@ double PlasticitySolver::solveCUDA() {
 	ramSaved = false;
 	std::cout << "\n\rIterations: " << iterNum << "                                             " \
 		<< "\nExit error: " << relErr \
-		<< "\nTime: " << solvingTime << " s" << std::endl;
+		<< "\nTime: " << solvingTime << " s\n" << std::endl;
 	plastSolved = true;
 
 	cudaFree(dd_h);
@@ -737,8 +764,21 @@ __global__ static void copyCond(float* rp_f, double* rp, float* uv_f, double* uv
 	uv_f[i] = (float)uv[i];
 }
 
+__global__ static void copyLines2(unsigned lineCount, float* df_lines, double* dd_lines) {
+	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	if (i >= lineCount) return;
+	df_lines[2 * i] = (float)dd_lines[2 * i];
+	df_lines[2 * i + 1] = (float)dd_lines[2 * i + 1];
+}
+
 void PlasticitySolver::copyConditions(float* rp_f, double* rp, int memLen) {
 	copyCond<<<memLen / BS, BS>>>(rp_f, rp, df_uv, dd_uv);
+	if (lineCount) {
+		df_lines.realloc(2 * lineCount);
+		const unsigned linesBlock = 32;
+		unsigned linesGrid = (lineCount + linesBlock - 1) / linesBlock;
+		copyLines2<<<linesGrid, linesBlock>>>(lineCount, df_lines, dd_lines);
+	}
 }
 
 void static copySpK(CudaSparseSLAE<float>& f, CudaSparseSLAE<double>& d) {
@@ -801,6 +841,15 @@ __global__ static void copyUv(float* uv_f, double* uv, bool* kinNodes) {
 		uv[i] = (double)uv_f[i];
 }
 
+__global__ static void refineLines2(unsigned lineCount, double* lines, unsigned* lineRows, double* uv) {
+	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	if (i >= lineCount) return;
+	vec2 uk = *reinterpret_cast<vec2*>(uv + lineRows[i]);
+	double len = uk.norm();
+	uk = *reinterpret_cast<vec2*>(lines + 2 * i) * len;
+	*reinterpret_cast<vec2*>(uv + lineRows[i]) = uk;
+}
+
 void PlasticitySolver::copyFloatToDouble(int memLen) {
 	copyUv<<<memLen / BS, BS>>>(df_uv, dd_uv, dev_kinNodes);
 	int elemGrid = (mesh.elemCount() + BS - 1) / BS;
@@ -808,10 +857,17 @@ void PlasticitySolver::copyFloatToDouble(int memLen) {
 		df_sxx, df_syy, df_tau, df_intensityS, df_tableS, df_E_c, df_nu_c, df_psi, \
 		dd_exx, dd_eyy, dd_gamma, dd_intensityE, \
 		dd_sxx, dd_syy, dd_tau, dd_intensityS, dd_tableS, dd_E_c, dd_nu_c, dd_psi);
+	if (lineCount) {
+		df_lines.free();
+		const unsigned linesBlock = 32;
+		unsigned linesGrid = (lineCount + linesBlock - 1) / linesBlock;
+		refineLines2<<<linesGrid, linesBlock>>>(lineCount, dd_lines, dev_lineRows, dd_uv);
+	}
 	cudaMemset(dd_intensityS, 0, elemGrid * BS * sizeof(double));
 	cudaMemset(dd_tableS, 0, elemGrid * BS * sizeof(double));
 	cudaDeviceSynchronize();
 }
+
 
 double PlasticitySolver::solveCUDA_FD() {
 	std::cout << "Solving..." << std::endl;
@@ -845,7 +901,10 @@ double PlasticitySolver::solveCUDA_FD() {
 
 	//ConjGradCuda2<float> cjc_f(spK_f);
 	//ConjGradCudaGW<float> cjc_f(spK_f, df_uv, dev_kinNodes);
-	ConjGradCudaV2<float> cjc_f(spK_f, df_uv, dev_kinNodes);
+	//ConjGradCudaV2<float> cjc_f(spK_f, df_uv, dev_kinNodes);
+	CudaJCGV<float> cjc_f((unsigned)spK.N, spK_f.data, (unsigned*)spK.rows, (unsigned*)spK.cols, spK_f.rp, \
+		df_uv, dev_kinNodes, preconditioning, true, false, 1, 512, \
+		df_lines, dev_lineRows, lineCount);
 
 	size_t iterNum = 0;
 	float relErr_f = 0.f;
@@ -855,7 +914,8 @@ double PlasticitySolver::solveCUDA_FD() {
 		//std::cout << "hash " << spK_f.matrixHash() << " " << spK_f.rpHash() << "\n";
 
 		size_t insideIter = 0;
-		cjc_f.solve(df_uv, dev_kinNodes, insideIter, 2e-4f);
+		//cjc_f.solve(df_uv, dev_kinNodes, insideIter, 2e-4f);
+		insideIter = cjc_f.solve(2e-4f);
 
 		updateParamFloat();//TO DO (done?)
 		relErr_f = exitCondition(df_intensityS, df_tableS, df_exit);
@@ -877,7 +937,10 @@ double PlasticitySolver::solveCUDA_FD() {
 	//cjc_f.~ConjGradCudaGW();
 	//cjc_f.~ConjGradCudaV2();
 	//ConjGradCudaGW<double> cjc(spK, dd_uv, dev_kinNodes);
-	ConjGradCudaV2<double> cjc(spK, dd_uv, dev_kinNodes);
+	//ConjGradCudaV2<double> cjc(spK, dd_uv, dev_kinNodes);
+	CudaJCGV<double> cjc((unsigned)spK.N, spK.data, (unsigned*)spK.rows, (unsigned*)spK.cols, spK.rp, \
+		dd_uv, dev_kinNodes, preconditioning, true, false, 1, 512, \
+		dd_lines, dev_lineRows, lineCount);
 
 	double relErr = 0.;
 	do {
@@ -886,7 +949,8 @@ double PlasticitySolver::solveCUDA_FD() {
 		//std::cout << "hash " << spK.matrixHash() << " " << spK.rpHash() << "\n";
 
 		size_t insideIter = 0;
-		cjc.solve(dd_uv, dev_kinNodes, insideIter, 1e-7);
+		//cjc.solve(dd_uv, dev_kinNodes, insideIter, 1e-7);
+		insideIter = cjc.solve(1e-7);
 
 		updateParamDouble();
 		relErr = exitCondition(dd_intensityS, dd_tableS, dd_exit);
@@ -899,7 +963,7 @@ double PlasticitySolver::solveCUDA_FD() {
 	ramSaved = false;
 	std::cout << "\n\rIterations: " << iterNum << "                                             " \
 		<< "\nExit error: " << relErr \
-		<< "\nTime: " << solvingTime << " s" << std::endl;
+		<< "\nTime: " << solvingTime << " s\n" << std::endl;
 	plastSolved = true;
 
 	cudaFree(dd_h);
@@ -1239,7 +1303,10 @@ void PlasticitySolver::initConditions(SparseSLAE& K) {
 		lines.malloc(2 * lineMem);
 		lineRows.malloc(lineMem);
 	}
-	else lines.free();
+	else {
+		lines.free();
+		lineRows.free();
+	}
 	lineCount = 0;
 	for (const auto& [id, line] : cond.alongLine)  // закрепления границ вдоль прямых
 		for (unsigned i = 0; i < mesh.borderLength[id]; ++i) {
@@ -1274,6 +1341,8 @@ void PlasticitySolver::initConditions(SparseSLAE& K) {
 				break;
 			}
 	}
+	//for (unsigned i = 0; i < lineCount; ++i)
+	//	std::cout << lineRows[i] << " ";
 }
 
 //TODO: совместить с процессорной функцией
@@ -1481,6 +1550,31 @@ void PlasticitySolver::initConditions_(CudaSparseSLAE<fp>& K, fp* uv) {
 				kinMask[2 * border[i] + 1] = false;
 		}
 	}
+
+	unsigned lineMem = 0;
+	for (const auto& [id, line] : cond.alongLine) // подсчёт закреплений границ вдоль прямых
+		lineMem += mesh.borderLength[id];
+	lineMem += cond.pointOnLine.size();
+	if (lineMem) {
+		lines.realloc(2 * lineMem);
+		lineRows.realloc(lineMem);
+	}
+	lineCount = 0;
+	for (const auto& [id, line] : cond.alongLine)  // закрепления границ вдоль прямых
+		for (unsigned i = 0; i < mesh.borderLength[id]; ++i) {
+			lineRows[lineCount] = 2 * mesh.borders[id][i];
+			reinterpret_cast<vec2*>(lines.data())[lineCount] = line;
+			++lineCount;
+		}
+	for (const auto& line : cond.pointOnLine)  // закрепления точек вдоль прямых
+		for (int i = 0; i < mesh.nodeCount; ++i)
+			if ((mesh.node[i] - line.point).norm() < 1e-14) {
+				lineRows[lineCount] = 2 * i;
+				reinterpret_cast<vec2*>(lines.data())[lineCount] = line.value;
+				++lineCount;
+				break;
+			}
+
 	for (const auto& forcePoint : cond.forcePoint) {  //сила в точке
 		for (int i = 0; i < mesh.nodeCount; ++i)
 			if ((mesh.node[i] - forcePoint.point).norm() < 1e-14) {
@@ -1510,6 +1604,19 @@ void PlasticitySolver::initConditions_(CudaSparseSLAE<fp>& K, fp* uv) {
 	delete[] kinMask;
 	delete[] loc_uv;
 	delete[] rp;
+
+	if (lineCount) {
+		dd_lines.realloc(2 * lineCount);
+		dev_lineRows.realloc(lineCount);
+		hostToDevice(dd_lines, lines, lineCount * 2);
+		hostToDevice(dev_lineRows, lineRows, lineCount);
+		lines.free();
+		lineRows.free();
+	}
+	else {
+		dd_lines.free();
+		dev_lineRows.free();
+	}
 }
 
 void PlasticitySolver::calcBs() {
@@ -1938,12 +2045,16 @@ void PlasticitySolver::fillGlobalStiffness(CudaSLAE<double>& K, CudaSparseSLAE<d
 	spK.clearStrip(K);
 	const int locBS = 1024;
 	if (m.h != 0.) {
-		insertKe4<double><<<(mesh.count4 + locBS - 1) / locBS, locBS>>>(K.matrix, K.W, dd_C, dd_formC, dd_Ke4, dd_B4, dd_detJ4, mesh.dev_elem4, dd_E_c, dd_nu_c, m.h, mesh.count4, mesh.elemPos[0]);
-		insertKe8<double><<<(mesh.count8 + 512 - 1) / 512, 512>>>(K.matrix, K.W, dd_C, dd_formC, dd_Ke8, dd_B8, dd_detJ8, mesh.dev_elem8, dd_E_c, dd_nu_c, m.h, mesh.count8, mesh.elemPos[1]);
+		if (mesh.count4)
+			insertKe4<double><<<(mesh.count4 + locBS - 1) / locBS, locBS>>>(K.matrix, K.W, dd_C, dd_formC, dd_Ke4, dd_B4, dd_detJ4, mesh.dev_elem4, dd_E_c, dd_nu_c, m.h, mesh.count4, mesh.elemPos[0]);
+		if (mesh.count8)
+			insertKe8<double><<<(mesh.count8 + 512 - 1) / 512, 512>>>(K.matrix, K.W, dd_C, dd_formC, dd_Ke8, dd_B8, dd_detJ8, mesh.dev_elem8, dd_E_c, dd_nu_c, m.h, mesh.count8, mesh.elemPos[1]);
 	}
 	else {
-		insertKe4<double><<<(mesh.count4 + locBS - 1) / locBS, locBS >>>(K.matrix, K.W, dd_C, dd_formC, dd_Ke4, dd_B4, dd_detJ4, mesh.dev_elem4, dd_E_c, dd_nu_c, dd_h, mesh.count4, mesh.elemPos[0]);
-		insertKe8<double><<<(mesh.count8 + 512 - 1) / 512, 512>>>(K.matrix, K.W, dd_C, dd_formC, dd_Ke8, dd_B8, dd_detJ8, mesh.dev_elem8, dd_E_c, dd_nu_c, dd_h, mesh.count8, mesh.elemPos[1]);
+		if (mesh.count4)
+			insertKe4<double><<<(mesh.count4 + locBS - 1) / locBS, locBS>>>(K.matrix, K.W, dd_C, dd_formC, dd_Ke4, dd_B4, dd_detJ4, mesh.dev_elem4, dd_E_c, dd_nu_c, dd_h, mesh.count4, mesh.elemPos[0]);
+		if (mesh.count8)
+			insertKe8<double><<<(mesh.count8 + 512 - 1) / 512, 512>>>(K.matrix, K.W, dd_C, dd_formC, dd_Ke8, dd_B8, dd_detJ8, mesh.dev_elem8, dd_E_c, dd_nu_c, dd_h, mesh.count8, mesh.elemPos[1]);
 	}
 	cudaDeviceSynchronize();
 	spK.copy(K);
@@ -1953,12 +2064,16 @@ void PlasticitySolver::fillGlobalStiffness(CudaSLAE<float>& K, CudaSparseSLAE<fl
 	spK.clearStrip(K);
 	const int locBS = 1024;
 	if (m.h != 0.) {
-		insertKe4<float><<<(mesh.count4 + locBS - 1) / locBS, locBS>>>(K.matrix, K.W, df_C, df_formC, df_Ke4, df_B4, df_detJ4, mesh.dev_elem4, df_E_c, df_nu_c, m.h, mesh.count4, mesh.elemPos[0]);
-		insertKe8<float><<<(mesh.count8 + locBS - 1) / locBS, locBS>>>(K.matrix, K.W, df_C, df_formC, df_Ke8, df_B8, df_detJ8, mesh.dev_elem8, df_E_c, df_nu_c, m.h, mesh.count8, mesh.elemPos[1]);
+		if (mesh.count4)
+			insertKe4<float><<<(mesh.count4 + locBS - 1) / locBS, locBS>>>(K.matrix, K.W, df_C, df_formC, df_Ke4, df_B4, df_detJ4, mesh.dev_elem4, df_E_c, df_nu_c, m.h, mesh.count4, mesh.elemPos[0]);
+		if (mesh.count8)
+			insertKe8<float><<<(mesh.count8 + locBS - 1) / locBS, locBS>>>(K.matrix, K.W, df_C, df_formC, df_Ke8, df_B8, df_detJ8, mesh.dev_elem8, df_E_c, df_nu_c, m.h, mesh.count8, mesh.elemPos[1]);
 	}
 	else {
-		insertKe4<float><<<(mesh.count4 + locBS - 1) / locBS, locBS>>>(K.matrix, K.W, df_C, df_formC, df_Ke4, df_B4, df_detJ4, mesh.dev_elem4, df_E_c, df_nu_c, df_h, mesh.count4, mesh.elemPos[0]);
-		insertKe8<float><<<(mesh.count8 + locBS - 1) / locBS, locBS>>>(K.matrix, K.W, df_C, df_formC, df_Ke8, df_B8, df_detJ8, mesh.dev_elem8, df_E_c, df_nu_c, df_h, mesh.count8, mesh.elemPos[1]);
+		if (mesh.count4)
+			insertKe4<float><<<(mesh.count4 + locBS - 1) / locBS, locBS>>>(K.matrix, K.W, df_C, df_formC, df_Ke4, df_B4, df_detJ4, mesh.dev_elem4, df_E_c, df_nu_c, df_h, mesh.count4, mesh.elemPos[0]);
+		if (mesh.count8)
+			insertKe8<float><<<(mesh.count8 + locBS - 1) / locBS, locBS>>>(K.matrix, K.W, df_C, df_formC, df_Ke8, df_B8, df_detJ8, mesh.dev_elem8, df_E_c, df_nu_c, df_h, mesh.count8, mesh.elemPos[1]);
 	}
 	cudaDeviceSynchronize();
 	spK.copy(K);
@@ -2071,10 +2186,12 @@ void PlasticitySolver::updateParamDouble() {
 	int grid = (mesh.count4 + BS - 1) / BS;
 	int grid8 = (mesh.count8 + BS - 1) / BS;
 	
-	strain4<<<grid, BS>>>(dd_uv, mesh.dev_elem4, mesh.elemPos[0], mesh.count4, dd_B4, \
-		dd_exx, dd_eyy, dd_gamma);
-	strain8<<<grid8, BS>>>(dd_uv, mesh.dev_elem8, mesh.elemPos[1], mesh.count8, dd_B8, \
-		dd_exx, dd_eyy, dd_gamma);
+	if (mesh.count4)
+		strain4<<<grid, BS>>>(dd_uv, mesh.dev_elem4, mesh.elemPos[0], mesh.count4, dd_B4, \
+			dd_exx, dd_eyy, dd_gamma);
+	if (mesh.count8)
+		strain8<<<grid8, BS>>>(dd_uv, mesh.dev_elem8, mesh.elemPos[1], mesh.count8, dd_B8, \
+			dd_exx, dd_eyy, dd_gamma);
 	cudaDeviceSynchronize();
 	plastStress<<<(mesh.elemCount() + 512 - 1) / 512, 512>>>(mesh.elemCount(), dd_C, dd_exx, dd_eyy, dd_gamma, dd_intensityE, \
 		dd_sxx, dd_syy, dd_tau, dd_intensityS, dd_tableS, dd_psi, dd_E_c, dd_nu_c, dev_m);

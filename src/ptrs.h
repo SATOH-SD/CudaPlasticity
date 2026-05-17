@@ -18,6 +18,13 @@ public:
 
 	hptr() = default;
 
+	hptr(const hptr<T>&) = delete;
+
+	hptr(hptr<T>&& p) {
+		ptr = p.ptr;
+		p.ptr = nullptr;
+	}
+
 	hptr(unsigned size) {
 		ptr = new T[size];
 	}
@@ -25,6 +32,16 @@ public:
 	~hptr() {
 		delete[] ptr;
 		ptr = nullptr;
+	}
+
+	hptr<T>& operator=(const hptr<T>&) = delete;
+
+	hptr<T>& operator=(hptr<T>&& p) {
+		if (p != *this) {
+			ptr = p.ptr;
+			p.ptr = nullptr;
+		}
+		return *this;
 	}
 
 	operator T*() const {
@@ -93,6 +110,13 @@ public:
 
 	dptr() = default;
 
+	dptr(const dptr<T>&) = delete;
+
+	dptr(dptr<T>&& p) {
+		ptr = p.ptr;
+		p.ptr = nullptr;
+	}
+
 	dptr(unsigned size) {
 		cudaMalloc(&ptr, size * sizeof(T));
 	}
@@ -100,6 +124,16 @@ public:
 	~dptr() {
 		cudaFree(ptr);
 		ptr = nullptr;
+	}
+
+	dptr<T>& operator=(const dptr<T>&) = delete;
+
+	dptr<T>& operator=(dptr<T>&& p) {
+		if (p != *this) {
+			ptr = p.ptr;
+			p.ptr = nullptr;
+		}
+		return *this;
 	}
 
 	operator T*() const {
@@ -136,7 +170,10 @@ public:
 	void expand(unsigned oldSize, unsigned newSize);
 
 	// Перевыделить память без сохранения данных
-	void realloc(unsigned size);
+	void realloc(unsigned size) {
+		cudaFree(ptr);
+		cudaMalloc(&ptr, size * sizeof(T));
+	}
 
 	void free() {
 		cudaFree(ptr);
@@ -149,12 +186,31 @@ public:
 
 };
 
+
+// Page-pinned host selfdestructive pointer
+// (не хранит информацию о размере выделенной памяти!)
 template<typename T>
-inline void hostToDevice(dptr<T> dst, const hptr<T> src, unsigned size) {
+class pptr {
+
+private:
+
+	T* ptr = nullptr;
+
+public:
+
+	pptr() = default;
+
+	//...
+
+};
+
+
+template<typename T>
+inline void hostToDevice(dptr<T>& dst, const hptr<T>& src, unsigned size) {
 	cudaMemcpy(dst, src, size * sizeof(T), cudaMemcpyHostToDevice);
 }
 
 template<typename T>
-inline void deviceToHost(hptr<T> dst, const dptr<T> src, unsigned size) {
+inline void deviceToHost(hptr<T>& dst, const dptr<T>& src, unsigned size) {
 	cudaMemcpy(dst, src, size * sizeof(T), cudaMemcpyDeviceToHost);
 }

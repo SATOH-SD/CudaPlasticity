@@ -5,6 +5,8 @@
 #include "StripSLAE.h"
 #include "Mesh.h"
 
+#include "cuda_runtime.h" //TEMP
+
 //Разреженная СЛАУ (CSR)
 class SparseSLAE {
 
@@ -182,6 +184,7 @@ public:
 		insSym = new int[adjDataSize];*/
 
 		dataSize = (adjDataSize + mesh.nodeCount) * dim * dim;
+		//cudaMallocHost((void**)&data, dataSize * sizeof(double)); //TEMP
 		data = new double[dataSize];
 		cols = new int[dataSize];
 
@@ -221,6 +224,7 @@ public:
 	}
 
 	~SparseSLAE() {
+		//cudaFreeHost(data); //TEMP
 		delete[] data;
 		delete[] rp;
 		delete[] rows;
