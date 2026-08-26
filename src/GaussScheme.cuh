@@ -1,4 +1,6 @@
-﻿#pragma once
+﻿// LEGACY
+
+#pragma once
 #include <math.h>
 
 #include "cuda_runtime.h"
@@ -37,7 +39,7 @@ struct GaussScheme {
 			point[0] = -sqrt(3. / 7. + 2. / 7. * sqrt(1.2));
 			point[1] = -sqrt(3. / 7. - 2. / 7. * sqrt(1.2));
 			point[2] = sqrt(3. / 7. - 2. / 7. * sqrt(1.2));
-			point[3] = sqrt(3. / 7. - 2. / 7. * sqrt(1.2));
+			point[3] = sqrt(3. / 7. + 2. / 7. * sqrt(1.2));
 			coef[0] = coef[3] = (18. - sqrt(30.)) / 36.;
 			coef[1] = coef[2] = (18. + sqrt(30.)) / 36.;
 			break;

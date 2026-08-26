@@ -38,6 +38,7 @@ public:
 
 	hptr<T>& operator=(hptr<T>&& p) {
 		if (p != *this) {
+			delete[] ptr;
 			ptr = p.ptr;
 			p.ptr = nullptr;
 		}
@@ -48,11 +49,11 @@ public:
 		return ptr;
 	}
 
-	T* data() {
+	T* raw() {
 		return ptr;
 	}
 
-	const T* data() const {
+	const T* raw() const {
 		return ptr;
 	}
 
@@ -80,10 +81,14 @@ public:
 
 	// Изменить размер выделенной памяти с сохранением данных
 	void expand(unsigned oldSize, unsigned newSize) {
-		T* newptr = new T[newSize];
+		T* newptr = std::malloc(newSize * sizeof(T));
 		memcpy(newptr, ptr, std::min(oldSize, newSize) * sizeof(T));
 		std::swap(ptr, newptr);
-		delete[] newptr;
+		std::free(newptr);
+	}
+
+	void swap(hptr<T>& ptr) {
+		std::swap(hptr<T>::ptr, ptr.ptr);
 	}
 
 	void free() {
@@ -130,6 +135,7 @@ public:
 
 	dptr<T>& operator=(dptr<T>&& p) {
 		if (p != *this) {
+			cudaFree(ptr);
 			ptr = p.ptr;
 			p.ptr = nullptr;
 		}
@@ -140,11 +146,11 @@ public:
 		return ptr;
 	}
 
-	T* data() {
+	T* raw() {
 		return ptr;
 	}
 
-	const T* data() const {
+	const T* raw() const {
 		return ptr;
 	}
 
@@ -173,6 +179,10 @@ public:
 	void realloc(unsigned size) {
 		cudaFree(ptr);
 		cudaMalloc(&ptr, size * sizeof(T));
+	}
+
+	void swap(dptr<T>& ptr) {
+		std::swap(dptr<T>::ptr, ptr);
 	}
 
 	void free() {

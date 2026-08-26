@@ -10,7 +10,12 @@ class JCGV {
 
 private:
 
-	SparseSLAE& slae;      // Ссылка на систему уравнений
+	unsigned N = 0;             // Размерность СЛАУ
+	double* data = nullptr;     // Указатель на массив значений матрицы
+	unsigned* rows = nullptr;   // Указатель на массив индексации строк
+	unsigned* cols = nullptr;   // Указатель на массив индексов столбцов
+
+	double* rhs = nullptr;      // Указатель на вектор правой части
 
 	double* x = nullptr;           // Указатель на вектор решения
 	bool* mask = nullptr;          // Указатель на маску кинематических условий
@@ -34,7 +39,11 @@ public:
 
 	/*
 	* Конструктор
-	* @param slae             Ссылка на систему уравнений
+	* @param N                Размерность системы
+	* @param data             Указатель на массив значений матрицы
+	* @param rows             Указатель на массив индексации строк
+	* @param cols             Указатель на массив индексов столбцов
+	* @param rhs              Указатель на вектор правой части
 	* @param solVector        Указатель на вектор решения
 	* @param mask             Маска кинематических условий
 	* @param preconditioning  Включение предобуславливания
@@ -45,11 +54,16 @@ public:
 	* @param lineRows         Индексы первых строк системы, соответствующих закреплениям на линиях
 	* @param lineCount        Количество закреплённых на линиях узлов
 	*/
-	JCGV(SparseSLAE& slae,
+	JCGV(
+		unsigned N,
+		double* data,
+		unsigned* rows,
+		unsigned* cols,
+		double* rhs,
 		double* solVector,
 		bool* mask,
 		bool preconditioning = true,
-		bool updatingMatrix = false,   
+		bool updatingMatrix = false,
 		bool updatingRhs = false,
 		unsigned dim = 1,
 		double* lines = nullptr,

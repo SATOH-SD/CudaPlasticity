@@ -13,9 +13,12 @@
 #include "CudaSparseSLAE.cuh"
 #include "Material.cuh"
 
+#include "CudaChecker.h"
+#include "CudaMesh.h"
 
 //#include "RotorCG.h" // TEMP
 
+class CSR;
 
 //Плоское состояние (напряжённое, деформированное)
 enum class planeCond { stress, strain };
@@ -24,16 +27,20 @@ enum class planeCond { stress, strain };
 const int secIntPs = 3; //количество точек интегрирования по одной оси для элементов 2го порядка (TEMP)
 const int secIntPs2 = secIntPs * secIntPs;
 
-
 //Класс решения задачи пластичности
 class PlasticitySolver {
 
 private:
 
+	CudaChecker* cudaCkeck = nullptr;
+	bool cudaCheckOwns = false;
+
 	Material m;
 	Material* dev_m;  //указатель на данные материала на видеокарте
 
-	Mesh mesh;   //Сетка
+	Mesh& mesh;   //Сетка TODO: сделать указатель
+
+	CudaMesh cudaMesh;
 
 	LoadConditions cond;  //Условия нагружения
 
@@ -46,7 +53,7 @@ private:
 	int slaeSize = 0;
 	int memLen = 0;
 
-	std::vector<double> uv;  //TODO: сделать указатель
+	std::vector<double> uv;  //TODO: перевести всё на hptr и dptr
 
 	double* dd_uv = nullptr;
 	float* df_uv = nullptr;
@@ -81,8 +88,6 @@ private:
 	bool ramSaved = true;
 
 	bool* kinMask = nullptr;  //Маска кинематических условий для процессора
-	
-	//int kinCount = 0;
 
 	bool* dev_kinNodes;  //Маска кинематических условий для видеокарты
 
@@ -95,7 +100,17 @@ private:
 	dptr<double> dd_lines;
 	dptr<unsigned> dev_lineRows;
 
-	StaticMatrix<3, 3, double>* C = nullptr;
+	hptr<double> B;
+	hptr<unsigned> Bidx;
+	hptr<unsigned> Bsize;
+
+	hptr<double> detJ;
+	hptr<unsigned> detJidx;
+
+	hptr<double> hsj;
+	hptr<unsigned> hsjIdx;
+
+	StaticMatrix<3, 3, double>* C_ = nullptr;
 	StaticMatrix<2, 3, double>* B3 = nullptr;
 	StaticMatrix<2, 4, double>* B4 = nullptr;
 	StaticMatrix<2, 8, double>* B8 = nullptr;
@@ -128,15 +143,18 @@ private:
 	void initPlastParams();
 	void initPlastParamsFloat();
 	
-	void initConditions(SparseSLAE& K);
+	void initConditions_(double* uvw, bool* mask, double* rhs, unsigned& lineCount, hptr<double>& lines, hptr<unsigned>& lineRows);
+	
+	void initConditions(double* uvw, bool* mask, double* rhs, unsigned& lineCount, hptr<double>& lines, hptr<unsigned>& lineRows);
 
 	template<typename fp>
 	void initConditions_(CudaSparseSLAE<fp>& K, fp* uv);
 
-	template<typename fp>
-	void initConditions(CudaSparseSLAE<fp>& K, fp* uv);
+	void calcBs_();
 
 	void calcBs();
+
+	void calcThickness_();
 
 	void calcThickness();
 
@@ -153,8 +171,6 @@ private:
 	void distribKe4(StripSLAE& K, const SymMatrix<8, double>& Ke, int e) const;
 	void distribKe8(StripSLAE& K, const SymMatrix<16, double>& Ke, int e) const;
 
-	void distribKe(SparseSLAE& K, const SymMatrix<8, double>& Ke, int e) const;
-
 	void fillGlobalStiffness(StripSLAE& K, SparseSLAE& spK);
 
 	//void fillGlobalStiffness(SparseSLAE& K);
@@ -162,8 +178,12 @@ private:
 	void fillGlobalStiffness(CudaSLAE<double>& K, CudaSparseSLAE<double>& spK);
 
 	void fillGlobalStiffness(CudaSLAE<float>& K, CudaSparseSLAE<float>& spK);
+
+	void assemble(CSR& K);
 	
-	void updateParameters(int iterNum = 0);
+	void updateParameters_(int iterNum = 0);
+
+	void updateParameters();
 
 	void updateParamDouble();
 
@@ -193,7 +213,7 @@ private:
 	double _rr(size_t e, const double* _x, const double* _y, const double* _xy) const {
 		vec2 ec;
 		for (int i = e * 4; i < (e + 1) * 4; ++i)
-			ec += mesh.node[mesh.elem4[i]];
+			ec += mesh.node2[mesh.elem4[i]];
 		ec /= 4;
 		double r = ec.norm();
 		double cos_ = ec.x / r, cos12 = ec.y / r;
@@ -204,7 +224,7 @@ private:
 	double _phiphi(size_t e, const double* _x, const double* _y, const double* _xy) const {
 		vec2 ec;
 		for (int i = e * 4; i < (e + 1) * 4; ++i)
-			ec += mesh.node[mesh.elem4[i]];
+			ec += mesh.node2[mesh.elem4[i]];
 		ec /= 4;
 		double r = ec.norm();
 		double cos_ = ec.x / r, cos12 = ec.y / r;
@@ -215,7 +235,7 @@ private:
 	double _rphi(size_t e, const double* _x, const double* _y, const double* _xy) const {
 		vec2 ec;
 		for (int i = e * 4; i < (e + 1) * 4; ++i)
-			ec += mesh.node[mesh.elem4[i]];
+			ec += mesh.node2[mesh.elem4[i]];
 		ec /= 4;
 		double r = ec.norm();
 		double cos_ = ec.x / r, cos12 = ec.y / r;
@@ -285,13 +305,35 @@ public:
 			E_c[i] = m.E;
 			nu_c[i] = m.nu;
 		}
-		C = new StaticMatrix<3, 3, double>[mesh.elemCount()];
+		C_ = new StaticMatrix<3, 3, double>[mesh.elemCount()];
 		B3 = new StaticMatrix<2, 3, double>[mesh.count3];
 		B4 = new StaticMatrix<2, 4, double>[4 * mesh.count4];
 		detJ4 = new double[4 * mesh.count4];
 		B8 = new StaticMatrix<2, 8, double>[secIntPs2 * mesh.count8];
 		detJ8 = new double[secIntPs2 * mesh.count8];
 		kinMask = new bool[2 * mesh.nodeCount];
+
+		Bidx.malloc(mesh.elemTypes + 1);
+		Bsize.malloc(mesh.elemTypes);
+		detJidx.malloc(mesh.elemTypes + 1);
+		hsjIdx.malloc(mesh.elemTypes + 1);
+		Bidx[0] = 0;
+		detJidx[0] = 0;
+		hsjIdx[0] = 0;
+		for (unsigned t = 0; t < mesh.elemTypes; ++t) {
+			const FiniteElement& type = mesh.elemInfo[t];
+			Bsize[t] = type.nodeCount * type.elemDim;
+			detJidx[t + 1] = detJidx[t] + type.intPointsCount * type.elemCount;
+			Bidx[t + 1] = Bidx[t] + type.intPointsCount * type.elemCount * Bsize[t];
+			switch (type.geomType) {
+			case GeomType::planeStress:
+				hsjIdx[t + 1] = hsjIdx[t] + type.elemCount * type.intPointsCount;
+				break;
+			}
+		}
+		B.malloc(Bidx[mesh.elemTypes]);
+		detJ.malloc(detJidx[mesh.elemTypes]);
+		hsj.malloc(hsjIdx[mesh.elemTypes]);
 
 		size_t memLen = ((mesh.nodeCount * 2) + BS - 1) / BS * BS;
 		uv.resize(memLen);
@@ -370,7 +412,7 @@ public:
 		//delete[] intS_1; delete[] intS_2;
 		delete[] psi; delete[] E_c; delete[] nu_c;
 		delete[] kinMask;
-		delete[] C;
+		delete[] C_;
 		delete[] B3; delete[] B4; delete[] B8;
 		delete[] detJ4; delete detJ8;
 		if (mesh.useCuda) {
@@ -401,17 +443,19 @@ public:
 		}
 	}
 
-	double solveElastCPU();
+	double solveLinearCPU();
 
-	double solveElastCUDA();
+	double solveLinearCUDA();
 
 	//Решить задачу упругости
-	double solveElast() {
+	double solveLinear() {
 		if (mesh.useCuda)
-			return solveElastCUDA();
+			return solveLinearCUDA();
 		else
-			return solveElastCPU();
+			return solveLinearCPU();
 	}
+
+	double solveCPU_();
 
 	double solveCPU();
 
@@ -423,7 +467,7 @@ public:
 	double solve() {
 		if (iterOutput)
 			printIter = [](size_t iterNum, size_t insideIter, double relErr) {
-				std::cout << "\n\rIteration " << iterNum + 1 << ", inner iterations: " << insideIter << ", error: " << relErr << "   ";
+				std::cout << "Iteration " << iterNum + 1 << ", inner iterations: " << insideIter << ", error: " << relErr << "\n";
 			};
 		else printIter = [](size_t, size_t, double) {};
 
@@ -484,7 +528,7 @@ public:
 			mesh.meshToRAM();
 		std::ofstream file(fileName, std::ios_base::out);
 		for (size_t i = 0; i < mesh.nodeCount; ++i) {
-			file << mesh.node[i].x << " " << mesh.node[i].y << " " \
+			file << mesh.node2[i].x << " " << mesh.node2[i].y << " " \
 				<< uv[2 * i] << " " << uv[2 * i + 1] << "\n";
 		}
 		file << std::flush;
@@ -511,7 +555,7 @@ public:
 
 			vec2 ec;
 			for (int i = e * 4; i < (e + 1) * 4; ++i)
-				ec += mesh.node[mesh.elem4[i]];
+				ec += mesh.node2[mesh.elem4[i]];
 			ec /= 4;
 
 			double err = fabs(s_x(ec) - sxx[e]);
@@ -538,7 +582,7 @@ public:
 		for (size_t e = 0; e < mesh.count4; ++e) {
 			vec2 ec;
 			for (int i = e * 4; i < (e + 1) * 4; ++i)
-				ec += mesh.node[mesh.elem4[i]];
+				ec += mesh.node2[mesh.elem4[i]];
 			ec /= 4;
 
 			const double pi = 3.141'592'653'589'793;

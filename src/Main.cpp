@@ -3,7 +3,7 @@
 #include <thread>
 #include <cstring>
 
-#include "PlasticitySolver.cuh"
+#include "PlasticitySolver.h"
 
 
 const double E_304L = 193e9;
@@ -34,7 +34,7 @@ void solverTest() {
 	m.h = 1.;
 
 	PlasticitySolver ps(m, mesh, lc);
-	ps.solveElast();
+	ps.solveLinear();
 	ps.saveAsVtk("../data/solverTest.vtk");
 }
 
@@ -65,7 +65,7 @@ void holePlateTest() {
 
 	PlasticitySolver ps(m, mesh, lc);
 	ps.polarCoord = true;
-	//ps.solveElast();
+	//ps.solveLinear();
 	ps.solve();
 	//ps.saveDisplsToFile("../data/holePlateTest.txt");
 	//ps.saveAsVtk("../data/holePlate.vtk");
@@ -112,7 +112,7 @@ void testRing() {
 
 	PlasticitySolver ps(m, mesh, lc);
 	ps.polarCoord = true;
-	ps.solveElast();
+	ps.solveLinear();
 	//ps.solve();
 	//ps.saveDisplsToFile("../data/ringTest.txt");
 	ps.saveAsVtk("../data/ring.vtk");
@@ -222,7 +222,7 @@ void kirschConvTest() {
 		sizes[i] = mesh.avrElemSize();
 
 		PlasticitySolver ps(m, mesh, lc);
-		ps.solveElast();
+		ps.solveLinear();
 		errors[i] = ps.polarSigmaError(s_r, s_phi, tau, 2.);
 
 		//errors[i] = fabs(S - ps.getSxx0()) / S;
@@ -260,11 +260,14 @@ void meshTransferTest() {
 	std::clog << "mesh saved\n";
 }
 
+#include "NodeAdjStruct.h"
+
 //Тест пластичности
 void plasticityTest() {
 
 	Mesh mesh;
-	//mesh.useCuda = false;
+	mesh.useCuda = false;
+	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 8, 6, 1, 1);
 	mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 48, 32, 1, 1);
 	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 8 * 48, 8 * 32, 1, 0);
 	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 96 * 3, 64 * 3, 1);
@@ -273,16 +276,41 @@ void plasticityTest() {
 	//mesh.genRectangle(-2, 2, -2, 2, 2, 2);
 	//mesh.printAnalysis();
 	//mesh.renumByDirection();
+	//mesh.printElemInfo();
 	std::cout << "max diff " << mesh.findMaxIndexDiff() << "\n\n";
 	//mesh.saveAsVtk("../data/renumMesh.vtk");
+
+	mesh.setPlaneWithThickness(1.);
+	//mesh.setPlaneWithThickness([](const double* x) { return 1. - 0.05 * sqrt(x[0] * x[0] + x[1] * x[1]); });
+
+	//mesh.printBorder();
+	/*for (unsigned i = 0; i < mesh.bordersCount; ++i) {
+		std::cout << "Border " << i << ": " << mesh.borderIdx[i + 1] - mesh.borderIdx[i] << "\n";
+		for (unsigned j = mesh.borderIdx[i]; j < mesh.borderIdx[i + 1]; ++j)
+			std::cout << mesh.borderH[j] << " ";
+		std::cout << "\n";
+	}*/
+
+	//ColorMap colorMap(mesh.nodeCount, mesh.elemTypes, mesh.elemInfo, mesh.elem);
+	//mesh.checkColorMap();
+	//mesh.saveAsVtu("../data/TestMesh.vtu");
+
+	/*mesh.checkNodeAdjStruct();
+	mesh.nodeAdjStruct.print();*/
+	//mesh.renumRCM();
+	//std::cout << "max diff " << mesh.findMaxIndexDiff() << "\n\n";
 
 	double S = 170; //растягивающая сила
 	LoadConditions lc;
 	lc.setForce(1, vec2(S, 0.));
 	lc.setForce(3, vec2(-S, 0.));
+	//lc.setForce(1, [=](vec2 x) { return vec2(x.y * S / 2, 0.); });
+	//lc.setForce(3, [=](vec2 x) { return vec2(-x.y * S / 2, 0.); });
 	//lc.setDisplacement(3, vec2(0, 0));
 	lc.fixVertAxis(0.);
 	lc.fixHorAxis(0.);
+	//lc.fixPoint(vec2(3., 0.));
+	//lc.fixPoint(vec2(-3., 0.));
 	
 	Material m;
 	//m.nu = 0.3;
@@ -295,18 +323,17 @@ void plasticityTest() {
 	//m.E = E_304L;//220e9;
 	m.nu = nu_304L;//0.3;
 
-	//PlasticitySolver ps(m, grid, lc);
 	PlasticitySolver ps(m, mesh, lc);
 	//ps.setPlainCondition(strain);
-	ps.floatBoost = true;
+	//ps.floatBoost = true;
 	//ps.iterOutput = false;
 	//ps.solve();
 	//ps.floatBoost = false;
 	//ps.preconditioning = false;
-	//ps.solve();
-	ps.solveElast();
-	ps.polarCoord = true;
-	ps.saveAsVtk("../data/holePlatePlast.vtk");
+	ps.solve();
+	//ps.solveLinear();
+	//ps.polarCoord = true;
+	//ps.saveAsVtk("../data/holePlatePlast.vtk");
 	//ps.saveAsVtu("../data/holePlatePlast.vtu");
 	//std::cout << "saved\n";
 	//std::cin.get();
@@ -503,10 +530,13 @@ void speedTest2() {
 	//const int elastCpu1 = 8, elastGpu1 = 9, elastCpu2 = 6, elastGpu2 = 6, \
 		plastCpu1 = 8, plastGpu1 = 9, plastCpu2 = 6, plastGpu2 = 6, \
 		plastGpuF1 = 9, plastGpuF2 = 6; //default
+	const int elastCpu1 = 9, elastGpu1 = 7, elastCpu2 = 6, elastGpu2 = 5, \
+		plastCpu1 = 9, plastGpu1 = 7, plastCpu2 = 6, plastGpu2 = 5, \
+		plastGpuF1 = 7, plastGpuF2 = 5; //4 GB
 	//const int elastCpu1 = 8, elastGpu1 = 8, elastCpu2 = 6, elastGpu2 = 6, \
 		plastCpu1 = 8, plastGpu1 = 8, plastCpu2 = 6, plastGpu2 = 6, \
 		plastGpuF1 = 8, plastGpuF2 = 6; //8 GB
-	const int elastCpu1 = 9, elastGpu1 = 9, elastCpu2 = 6, elastGpu2 = 6, \
+	//const int elastCpu1 = 9, elastGpu1 = 9, elastCpu2 = 6, elastGpu2 = 6, \
 		plastCpu1 = 9, plastGpu1 = 9, plastCpu2 = 6, plastGpu2 = 6, \
 		plastGpuF1 = 9, plastGpuF2 = 6; //12 GB
 	double elastCpu1_time[elastCpu1] = {},
@@ -544,7 +574,7 @@ void speedTest2() {
 			std::cout << "\rGPU elasticity test " << base[0] * scales[i] << "x" << base[1] * scales[i] << " (1st order)\n";
 			mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 1, 0);
 			PlasticitySolver ps(m, mesh, lc);
-			elastGpu1_time[i] = ps.solveElast();
+			elastGpu1_time[i] = ps.solveLinear();
 			std::cout << std::flush;
 		}
 		std::cout << "\n\n\n\nTest GPU elasticity (2nd order)\n\n";
@@ -554,7 +584,7 @@ void speedTest2() {
 			std::cout << "\rGPU elasticity test " << base[0] * scales[i] << "x" << base[1] * scales[i] << " (2nd order)\n";
 			mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 2, 0);
 			PlasticitySolver ps(m, mesh, lce);
-			elastGpu2_time[i] = ps.solveElast();
+			elastGpu2_time[i] = ps.solveLinear();
 			std::cout << std::flush;
 		}
 		std::cout << "\n\n\n\nTest GPU plasticity float boost (1st order)\n\n";
@@ -622,7 +652,7 @@ void speedTest2() {
 		std::this_thread::sleep_for(std::chrono::milliseconds(5000));
 	}
 	//CPU
-	/*mesh.useCuda = false;
+	mesh.useCuda = false;
 	std::cout << "\n\n\n\nTest CPU elasticity (1st order)\n\n";
 	for (int i = 0; i < elastCpu1; ++i) {
 		std::cout << "\n\nChilling...";
@@ -630,7 +660,7 @@ void speedTest2() {
 		std::cout << "\rCPU elasticity test " << base[0] * scales[i] << "x" << base[1] * scales[i] << " (1st order)\n";
 		mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 1, 0);
 		PlasticitySolver ps(m, mesh, lce);
-		elastCpu1_time[i] = ps.solveElast();
+		elastCpu1_time[i] = ps.solveLinear();
 		std::cout << std::flush;
 	}
 	std::cout << "\n\n\n\nTest CPU elasticity (2nd order)\n\n";
@@ -640,7 +670,7 @@ void speedTest2() {
 		std::cout << "\rCPU elasticity test " << base[0] * scales[i] << "x" << base[1] * scales[i] << " (2nd order)\n";
 		mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 2, 0);
 		PlasticitySolver ps(m, mesh, lce);
-		elastCpu2_time[i] = ps.solveElast();
+		elastCpu2_time[i] = ps.solveLinear();
 		std::cout << std::flush;
 	}
 	std::cout << "\n\n\n\nTest CPU plasticity (1st order)\n\n";
@@ -670,7 +700,7 @@ void speedTest2() {
 		}
 		plastCpu2_time[i] = ps.solve();
 		std::cout << std::flush;
-	}*/
+	}
 
 	/*std::cout << "\n\n\nResults\n\nCPU only\n Elements        Time\n  ";
 	for (int i = 0; i < tests; ++i)
@@ -697,7 +727,7 @@ void speedTest2() {
 	for (int i = 0; i < 9; ++i) {
 		file.width(9); file << elemCount[i] << " ";
 	}
-	/*file << "\n\nCPU elast (1st)   ";
+	file << "\n\nCPU elast (1st)   ";
 	for (int i = 0; i < elastCpu1; ++i) {
 		file.width(9); file << elastCpu1_time[i] << " ";
 	}
@@ -724,7 +754,7 @@ void speedTest2() {
 	}
 	for (int i = plastCpu2; i < 9; ++i) {
 		file.width(9); file << "-" << " ";
-	}*/
+	}
 
 	if (fullTest) {
 		file << "\n\nGPU elast (1st)   ";
@@ -771,7 +801,7 @@ void speedTest2() {
 			file.width(9); file << "-" << " ";
 		}
 	}
-	/*file << "\n\n\n\nCPU elast 1st\n{";
+	file << "\n\n\n\nCPU elast 1st\n{";
 	for (int i = 0; i < elastCpu1; ++i) {
 		if (i != 0) file << ",";
 		file << "{" << elemCount[i] << "," << elastCpu1_time[i] << "}";
@@ -791,7 +821,7 @@ void speedTest2() {
 		if (i != 0) file << ",";
 		file << "{" << elemCount[i] << "," << plastCpu2_time[i] << "}";
 	}
-	file << "}";*/
+	file << "}";
 	if (fullTest) {
 		file << "\nGPU elast 1st\n{";
 		for (int i = 0; i < elastGpu1; ++i) {
@@ -971,7 +1001,7 @@ void miniSpeedTest() {
 		case 0: case 1: case 2: case 3: case 4: ps.iterOutput = false; break;
 		default: ps.iterOutput = true; break;
 		}
-		//time[i] = ps.solveElast();
+		//time[i] = ps.solveLinear();
 		time[i] = ps.solve();
 		std::cout << std::flush;
 	}
@@ -1045,7 +1075,7 @@ void forceFuncTest() {
 	m.E = 220e9; //сталь
 
 	PlasticitySolver ps(m, mesh, lc);
-	ps.solveElast();
+	ps.solveLinear();
 	ps.saveDisplsToFile("../data/forceTest.txt");
 	ps.saveAsVtk("../data/forceTest.vtk");
 }
@@ -1184,7 +1214,7 @@ void writeKirschExact() {
 	file << "DATASET POLYDATA\n";
 	file << "POINTS " << mesh.nodeCount << " float\n";
 	for (int i = 0; i < mesh.nodeCount; ++i)
-		file << mesh.node[i].x << " " << mesh.node[i].y << " " << 0 << "\n";
+		file << mesh.node2[i].x << " " << mesh.node2[i].y << " " << 0 << "\n";
 	file << "POLYGONS " << mesh.elemPos[2] << " " << 4 * mesh.count3 + 5 * mesh.count4 + 9 * mesh.count8;
 	for (size_t i = 0; i < mesh.count3; ++i) {
 		file << "\n3 ";
@@ -1216,25 +1246,25 @@ void writeKirschExact() {
 		file << "\n" << i;
 	file << "\nFIELD FieldData2 4\nSigma_r 1 " << mesh.nodeCount << " float\n";
 	for (size_t i = 0; i < mesh.nodeCount; ++i) {
-		vec2 ec = mesh.node[i];
+		vec2 ec = mesh.node2[i];
 		vec2 r(sqrt(ec.x * ec.x + ec.y * ec.y), atan(ec.y / ec.x) + (ec.x < 0. ? pi : 0.));
 		file << s_r(r) << " ";
 	}
 	file << "\nSigma_phi 1 " << mesh.nodeCount << " float\n";
 	for (size_t i = 0; i < mesh.nodeCount; ++i) {
-		vec2 ec = mesh.node[i];
+		vec2 ec = mesh.node2[i];
 		vec2 r(sqrt(ec.x * ec.x + ec.y * ec.y), atan(ec.y / ec.x) + (ec.x < 0. ? pi : 0.));
 		file << s_phi(r) << " ";
 	}
 	file << "\nTau_rphi 1 " << mesh.nodeCount << " float\n";
 	for (size_t i = 0; i < mesh.nodeCount; ++i) {
-		vec2 ec = mesh.node[i];
+		vec2 ec = mesh.node2[i];
 		vec2 r(sqrt(ec.x * ec.x + ec.y * ec.y), atan(ec.y / ec.x) + (ec.x < 0. ? pi : 0.));
 		file << tau(r) << " ";
 	}
 	file << "\nSigma_intensity 1 " << mesh.nodeCount << " float\n";
 	for (size_t i = 0; i < mesh.nodeCount; ++i) {
-		vec2 ec = mesh.node[i];
+		vec2 ec = mesh.node2[i];
 		vec2 r(sqrt(ec.x * ec.x + ec.y * ec.y), atan(ec.y / ec.x) + (ec.x < 0. ? pi : 0.));
 		file << sqrt(0.5 * (sqr(s_r(r)) + sqr(s_phi(r)) + sqr(s_r(r) - s_phi(r)) + 6. * sqr(tau(r)))) << " ";
 	}
@@ -1292,7 +1322,7 @@ void meshTest() {
 	//std::cin.get();
 	
 	PlasticitySolver ps(m, mesh, lc);
-	ps.solveElast();
+	ps.solveLinear();
 	//ps.saveAsVtk("../data/test2.vtk");
 }
 
@@ -1329,7 +1359,7 @@ void beamTest() {
 	m.nu = 0.3;
 
 	PlasticitySolver ps(m, mesh, lc);
-	ps.solveElast();
+	ps.solveLinear();
 	ps.saveAsVtk("../data/beam.vtk");
 }
 
@@ -1360,7 +1390,7 @@ void stroiMechBeam() {
 		auto tau_xy = [=](vec2 r) { return 0.; };
 
 		PlasticitySolver solver1(m, mesh, load1);
-		solver1.solveElast();
+		solver1.solveLinear();
 		solver1.saveAsVtk("../data/StroiMech/Beam1.vtk");
 		solver1.saveResidualsAsVtk("../data/StroiMech/Res1.vtk", u_x, u_y, sigma_x, sigma_y, tau_xy);
 	}
@@ -1380,7 +1410,7 @@ void stroiMechBeam() {
 			load2a.setForce(2, vec2(0., Fy));
 
 			PlasticitySolver solver2a(m, mesh, load2a);
-			solver2a.solveElast();
+			solver2a.solveLinear();
 			solver2a.saveAsVtk("../data/StroiMech/Beam2a.vtk");
 			solver2a.saveResidualsAsVtk("../data/StroiMech/Res2a.vtk", u_x, u_y, sigma_x, sigma_y, tau_xy);
 		}
@@ -1390,7 +1420,7 @@ void stroiMechBeam() {
 			load2b.setForce(2, [=](vec2 r) { return vec2(0., 2000 * 0.5e6 / 6.7 * (0.01 - r.y * r.y)); });
 
 			PlasticitySolver solver2b(m, mesh, load2b);
-			solver2b.solveElast();
+			solver2b.solveLinear();
 			solver2b.saveAsVtk("../data/StroiMech/Beam2b.vtk");
 			solver2b.saveResidualsAsVtk("../data/StroiMech/Res2b.vtk", u_x, u_y, sigma_x, sigma_y, tau_xy);
 		}
@@ -1415,7 +1445,7 @@ void stroiMechBeam() {
 			load3_1.setForce(1, vec2(0., q / 0.01));
 
 			PlasticitySolver solver3_1(m, mesh, load3_1);
-			solver3_1.solveElast();
+			solver3_1.solveLinear();
 			solver3_1.saveAsVtk("../data/StroiMech/Beam3_1.vtk");
 			solver3_1.saveResidualsAsVtk("../data/StroiMech/Res3_1.vtk", u_x, u_y, sigma_x, sigma_y, tau_xy);
 		}
@@ -1428,7 +1458,7 @@ void stroiMechBeam() {
 			load3_2.fixBorderVert(2);
 
 			PlasticitySolver solver3_2(m, mesh, load3_2);
-			solver3_2.solveElast();
+			solver3_2.solveLinear();
 			solver3_2.saveAsVtk("../data/StroiMech/Beam3_2.vtk");
 			solver3_2.saveResidualsAsVtk("../data/StroiMech/Res3_2.vtk", u_x, u_y, sigma_x, sigma_y, tau_xy);
 		}
@@ -1454,7 +1484,7 @@ void testCurvedBeam() {
 	load0.setForce(0, vec2(-1e6, 0.));
 	
 	PlasticitySolver solver0(m, mesh, load0);
-	solver0.solveElast();
+	solver0.solveLinear();
 	solver0.polarCoord = true;
 	solver0.saveAsVtk("../data/StroiMech/CurvedBeam0.vtk");
 
@@ -1474,7 +1504,7 @@ void testCurvedBeam() {
 	load1.setForce(2, [&](vec2 r) { double R = r.norm(); return vec2(0., P(R)); });
 
 	PlasticitySolver solver1(m, mesh, load1);
-	solver1.solveElast();
+	solver1.solveLinear();
 	solver1.polarCoord = true;
 	solver1.saveAsVtk("../data/StroiMech/CurvedBeam1.vtk");
 
@@ -1491,7 +1521,7 @@ void testCurvedBeam() {
 	load2.setForce(0, [=](vec2 r) { double R = r.norm(); return vec2(-P(R), 0.); }, true);
 
 	PlasticitySolver solver2(m, mesh, load2);
-	solver2.solveElast();
+	solver2.solveLinear();
 	solver2.polarCoord = true;
 	solver2.saveAsVtk("../data/StroiMech/CurvedBeam2.vtk");
 }
@@ -1518,7 +1548,7 @@ void curvedBeam2() {
 	load0.setForce(0, [=](vec2 r) { double R = r.norm(); return vec2(Pmax * (3.5 - R) / 0.5, 0.); }, true);
 
 	PlasticitySolver solver0(m, mesh, load0);
-	solver0.solveElast();
+	solver0.solveLinear();
 	solver0.polarCoord = true;
 	solver0.saveAsVtk("../data/StroiMech/CurvedBeam_.vtk");
 }
@@ -1537,14 +1567,16 @@ void testDiskRotation() {
 	m.rho = 7800;
 
 	Mesh mesh;
-	//mesh.useCuda = false;
-	mesh.genRing(0.25, 0.5, 1024, 5);
+	mesh.useCuda = false;
+	mesh.genRing(0.25, 0.5, 1024, 5, 1);
+	//mesh.genRing(0.25, 0.5, 1024, 5);
 	//mesh.genRing(0.25, 0.5, 1756, 5);
 	//mesh.genRing(0.25, 0.5, 1024, 5, 2);
 	//mesh.useCuda = false;
+	mesh.setPlaneWithThickness([](const double* p) { double r = sqrt(p[0] * p[0] + p[1] * p[1]); return 0.1 * exp(15 * (0.0625 - r * r)) + (r > 0.47 ? 0.1 * 30 * (r - 0.47) : 0.); });
 
 	LoadConditions load;
-	load.setRotation(300);
+	load.setRotation(3000);
 	//load.setVolumeForce([=](vec2 r) { return vec2(0 * 1e6 * r.x, -1e6 * r.y); });
 	//load.fixHorAxis(0.);
 	//load.fixVertAxis(0.);
@@ -1552,7 +1584,7 @@ void testDiskRotation() {
 	PlasticitySolver solver(m, mesh, load);
 	//solver.floatBoost = true;
 	solver.solve();
-	solver.polarCoord = true;
+	//solver.polarCoord = true;
 	solver.saveAsVtk("../data/DiskRotation.vtk");
 }
 
@@ -1580,12 +1612,12 @@ void stroiMechKirsch() {
 	load2.setForce(2, { 0, -1e8 });
 
 	PlasticitySolver solver1(m, mesh, load1);
-	solver1.solveElast();
+	solver1.solveLinear();
 	solver1.polarCoord = true;
 	solver1.saveAsVtk("../data/StroiMech/Kirsch1.vtk");
 
 	PlasticitySolver solver2(m, mesh, load2);
-	solver2.solveElast();
+	solver2.solveLinear();
 	solver2.polarCoord = true;
 	solver2.saveAsVtk("../data/StroiMech/Kirsch2.vtk");
 }
@@ -1608,7 +1640,7 @@ void pointForceTest() {
 
 	PlasticitySolver solver(m, mesh, load);
 	solver.setPlaneCondition(planeCond::strain);
-	solver.solveElast();
+	solver.solveLinear();
 	solver.saveAsVtk("../data/PointContact.vtk");
 }
 
@@ -1700,25 +1732,40 @@ void lockTest() {
 	//load.fixBorderHor(0);
 	load.setForce(1, vec2(10e6, 0.), true);
 	load.fixBorderVert(2);
+	//load.fixBorder(2);
 	load.setForce(3, vec2(-50e6, 0.), true);
 	load.setRotation(2000);
+
+	//load.fixPoint(vec2(0., 90.));
 	{
 		Mesh mesh1;
 		mesh1.loadFromFile("../data/Lock1.inp");
-		mesh1.renumByDirection({ 0., 1. });
+		std::cout << "max diff " << mesh1.findMaxIndexDiff() << "\n\n";
+		//mesh1.renumByDirection({ 0., 1. });
+		//std::cout << "max diff " << mesh1.findMaxIndexDiff() << "\n\n";
+		mesh1.renumRCM();
+		std::cout << "max diff " << mesh1.findMaxIndexDiff() << "\n\n";
+		//mesh1.checkColorMap();
+		mesh1.useCuda = false;
 		PlasticitySolver solver(m, mesh1, load);
 		solver.preconditioning = false;
-		solver.floatBoost = true;
+		//solver.floatBoost = true;
 		solver.solve();
 		solver.saveAsVtk("../data/Lock1.vtk");
 	}
 	{
 		Mesh mesh2;
 		mesh2.loadFromFile("../data/Lock2.inp");
-		mesh2.renumByDirection({ 0., 1. });
+		std::cout << "max diff " << mesh2.findMaxIndexDiff() << "\n\n";
+		//mesh2.renumByDirection({ 0., 1. });
+		//std::cout << "max diff " << mesh2.findMaxIndexDiff() << "\n\n";
+		mesh2.renumRCM();
+		std::cout << "max diff " << mesh2.findMaxIndexDiff() << "\n\n";
+		//mesh2.checkColorMap();
+		mesh2.useCuda = false;
 		PlasticitySolver solver(m, mesh2, load);
 		solver.preconditioning = false;
-		solver.floatBoost = true;
+		//solver.floatBoost = true;
 		solver.solve();
 		solver.saveAsVtk("../data/Lock2.vtk");
 	}
@@ -1743,7 +1790,7 @@ int main() { //выбор запускаемого теста
 
 	//energyConvTest();
 
-	//plasticityTest();
+	plasticityTest();
 
 	//kirschConvTest();
 
@@ -1781,6 +1828,6 @@ int main() { //выбор запускаемого теста
 
 	//diskSectorTest();
 
-	lockTest();
+	//lockTest();
 
 }

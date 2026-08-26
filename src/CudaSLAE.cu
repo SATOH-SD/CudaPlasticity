@@ -5,6 +5,9 @@
 
 #include "Mesh.h"
 
+#include <iostream>
+#include <fstream>
+
 template<typename fp>
 class CudaSLAE {
 

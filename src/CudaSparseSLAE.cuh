@@ -8,6 +8,9 @@
 
 //#include "CudaSparseSLAE.cu"
 
+#include <iostream>
+#include <algorithm>
+
 __global__ void calcLinks3(int* linkCounts, int* elem, int count4);
 __global__ void calcLinks4(int* linkCounts, int* elem, int count4);
 __global__ void calcLinks8(int* linkCounts, int* elem, int count4);
@@ -417,6 +420,7 @@ void CudaSparseSLAE<fp>::constructorByCPU(Mesh& mesh, int dim) {
 		for (int link = 0; link < unLinkCount[node]; ++link) {
 			loc_adj[begin + link] = uniqueLinks[node * dataWidth + link];
 		}
+		//std::sort(loc_adj + begin, loc_adj + begin + unLinkCount[node]);
 		for (int i = 0; i < dim; ++i)
 			loc_rows[dim * node + i + 1] = begin * dim * dim + (i + 1) * size * dim + (dim * node + i + 1) * dim;
 	}

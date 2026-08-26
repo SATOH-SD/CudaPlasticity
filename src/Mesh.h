@@ -1,29 +1,32 @@
 ﻿#pragma once
 
-#include <iostream>
-#include <fstream>
-#include <vector>
-#include <string>
 #include <cmath>
-#include <sstream>
-#include <omp.h>
+#include <string>
+#include <functional>
+
+#include "FiniteElement.h"
 
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 
 #include "ptrs.h"
 #include "vec2.cuh"
-//#include "GaussScheme.cuh"
+
+#include "NodeAdjStruct.h"
+#include "ColorMap.h"
+
+#include "CudaChecker.h" // TEMP
 
 
 const int BS = 1024; //Стандартный размер блока CUDA
+
 
 
 //Класс сетки
 class Mesh {
 
 private:
-
+	
 	void fillPos() {
 		elemPos[0] = count3;
 		elemPos[1] = elemPos[0] + count4;
@@ -38,21 +41,45 @@ private:
 
 	void remapOrder(int width);
 
+	void translateFromLegacy();  // TEMP
+
+	void setGeomForElem(GeomType geomType, unsigned elemType);
+
+	void mallocThickness(unsigned elemType);
+
+	void setThickness(unsigned elemType, double h);
+
+	void setThickness(unsigned elemType, std::function<double(const double*)> h);
+
 public:
 
-	bool useCuda = false;
+	unsigned totalElems = 0;
 
-	bool ramSaved = false;
+	unsigned elemTypes = 0;
+
+	hptr<FiniteElement> elemInfo;
+
+	hptr<unsigned> elem;
+
+	NodeAdjStruct nodeAdjStruct;
+
+	ColorMap colorMap;
+
+	bool useCuda = false;  // LEGACY
+
+	bool ramSaved = false; // LEGACY
 
 	bool analysed = false;
 
-	int count3 = 0;
-	int count4 = 0;
-	int count8 = 0;
+	int dim = 2;
 
-	int* elem3 = nullptr;
-	int* elem4 = nullptr;
-	int* elem8 = nullptr;
+	int count3 = 0;  // LEGACY
+	int count4 = 0;  // LEGACY
+	int count8 = 0;  // LEGACY
+
+	int* elem3 = nullptr;  // LEGACY
+	int* elem4 = nullptr;  // LEGACY
+	int* elem8 = nullptr;  // LEGACY
 
 	int* dev_elem3 = nullptr;
 	int* dev_elem4 = nullptr;
@@ -61,9 +88,11 @@ public:
 	int elemPos[3] = {};
 	int dev_elemPos[3] = {};
 
-	int nodeCount = 0;
+	unsigned nodeCount = 0;
 
-	vec2* node = nullptr;
+	hptr<double> node;
+
+	vec2* node2 = nullptr;     // LEGACY
 	vec2* dev_node = nullptr;
 
 	bool* secOrdNodes = nullptr;
@@ -76,40 +105,22 @@ public:
 	int** borders = nullptr;
 	//int** dev_borders = nullptr;
 
+	hptr<unsigned> border;
+	hptr<unsigned> borderIdx;
+
+	hptr<double> borderH;  // TEMP?
+
 	double* spaces = nullptr;
 	double* aspects = nullptr;
 	double* skewAngles = nullptr;
 
-	double* dev_spaces = nullptr;
-	double* dev_aspects = nullptr;
-	double* dev_skewAngles = nullptr;
-
 	Mesh() {
-		int deviceCount = 0;
-		cudaGetDeviceCount(&deviceCount);
-		if (deviceCount) {
-			useCuda = true;
-			ramSaved = false;
-			cudaSetDevice(0);
-			cudaDeviceProp deviceProp;
-			cudaGetDeviceProperties(&deviceProp, 0);
-			/*int driverVersion;
-			cudaDriverGetVersion(&driverVersion);
-			std::cout << driverVersion << "\n";*/
-			/*std::cout << deviceProp.sharedMemPerBlock << "\n";
-			std::cout << deviceProp.sharedMemPerMultiprocessor << "\n";*/
-			std::cout << "Detected " << deviceProp.name << " " \
-				<< round((double)deviceProp.totalGlobalMem / 1'048'576.) << " MB\n" \
-				<< "Running native mode...\n\n";
-		}
-		else {
-			useCuda = false;
-			ramSaved = true;
-			std::cout << "There is no CUDA device!\nRunning CPU only...\n\n";
-		}
+		CudaChecker checker;
+		useCuda = checker.isGpuOn();  // TEMP
 	}
 
-	Mesh(const Mesh& mesh) {
+	Mesh(const Mesh& mesh)
+		: nodeAdjStruct(mesh.nodeAdjStruct) {
 		//std::cout << "log1\n";
 		useCuda = mesh.useCuda;
 		ramSaved = mesh.ramSaved;
@@ -118,13 +129,20 @@ public:
 		count4 = mesh.count4;
 		count8 = mesh.count8;
 		nodeCount = mesh.nodeCount;
+
+		/*node.malloc(nodeCount * dim);
+		memcpy(node, mesh.node, nodeCount * dim * sizeof(unsigned));*/
+
+		/*totalElems = mesh.totalElems;
+		elemInfo.malloc(elemTypes);*/
+
 		fillPos();
 		//std::cout << "log2\n";
 		if (ramSaved) {
 			//std::cout << "log5\n";
-			node = new vec2[nodeCount];
+			node2 = new vec2[nodeCount];
 			secOrdNodes = new bool[nodeCount];
-			memcpy(node, mesh.node, nodeCount * sizeof(vec2));
+			memcpy(node2, mesh.node2, nodeCount * sizeof(vec2));
 			memcpy(secOrdNodes, mesh.secOrdNodes, nodeCount * sizeof(bool));
 			elem3 = new int[3 * count3];
 			elem4 = new int[4 * count4];
@@ -148,6 +166,7 @@ public:
 				memcpy(aspects, mesh.aspects, count4 * sizeof(double));
 				memcpy(skewAngles, mesh.skewAngles, count4 * sizeof(double));
 			}
+			translateFromLegacy();
 		}
 		if (useCuda) {
 			cudaMalloc((void**)&dev_node, (nodeCount + BS - 1) / BS * BS * sizeof(vec2));
@@ -177,21 +196,13 @@ public:
 			//	cudaMalloc((void**)&(dev_borders[i]), borderLength[i] * sizeof(int));
 			//	cudaMemcpy(dev_borders[i], mesh.dev_borders[i], borderLength[i] * sizeof(int), cudaMemcpyDeviceToDevice);
 			//}
-			if (analysed) {
-				cudaMalloc((void**)&dev_spaces, elemCount() * sizeof(double));
-				cudaMalloc((void**)&dev_aspects, elemCount() * sizeof(double));
-				cudaMalloc((void**)&dev_skewAngles, elemCount() * sizeof(double));
-				cudaMemcpy(dev_spaces, mesh.dev_spaces, elemCount() * sizeof(double), cudaMemcpyDeviceToDevice);
-				cudaMemcpy(dev_aspects, mesh.dev_aspects, elemCount() * sizeof(double), cudaMemcpyDeviceToDevice);
-				cudaMemcpy(dev_skewAngles, mesh.dev_skewAngles, elemCount() * sizeof(double), cudaMemcpyDeviceToDevice);
-			}
 			//std::cout << "log4\n";
 		}
 		
 	}
 
 	~Mesh() {
-		delete[] node;
+		delete[] node2;
 		delete[] elem3;
 		delete[] elem4;
 		delete[] elem8;
@@ -209,14 +220,14 @@ public:
 			cudaFree(dev_elem8);
 			//for (int i = 0; i < dev_bordersCount; ++i)
 			//	cudaFree(dev_borders[i]);
-			cudaFree(dev_spaces);
-			cudaFree(dev_aspects);
-			cudaFree(dev_skewAngles);
 		}
-		//delete[] dev_borders;
 
 		//TODO: null sizes and pointers
 		//TODO: delete secOrdNodes
+
+		/*for (unsigned i = 0; i < elemTypes; ++i)
+			elemInfo[i].~FiniteElement();*/
+		//std::vector<int>::~vector()
 	}
 
 	int elemCount() const {
@@ -237,6 +248,32 @@ public:
 
 	void renumByDirection(vec2 direction = {1., 1.});
 
+	void renumRCM();
+
+	void setGeomType(GeomType geomType);
+
+	void setGeomType(GeomType geomType, unsigned block);
+
+	void setPlaneWithThickness(double h = 1.);
+
+	void setPlaneWithThickness(std::function<double(const double*)> h);
+
+	void setPlaneWithThickness(unsigned blockId, double h = 1.);
+
+	void setPlaneWithThickness(unsigned blockId, std::function<double(const double*)> h);
+
+	void fillBorderH();  // TEMP?
+
+	void checkNodeAdjStruct() {
+		if (nodeAdjStruct.empty())
+			nodeAdjStruct.init(nodeCount, elemTypes, elemInfo, elem);
+	}
+
+	void checkColorMap() {
+		if (colorMap.empty())
+			colorMap.init(nodeCount, elemTypes, elemInfo, elem);
+	}
+
 	void smoothRing(int borderN);
 
 	int findMaxIndexDiff() const;
@@ -247,6 +284,9 @@ public:
 	//Сохранить в файл формата vtk
 	void saveAsVtk(const std::string& fileName);
 
+	//Сохранить в файл формата vtu
+	void saveAsVtu(const std::string& fileName);
+
 	void meshToRAM();
 
 	void meshToGPU();
@@ -254,14 +294,18 @@ public:
 	//Вывод на экран
 	void print();
 
+	void printElemInfo() const;
+
+	void printBorder() const;
+
 	double elemSpace3(int e) const {
 		double sum1 = 0., sum2 = 0.;
 		for (int i = 3 * e + 1; i < 3 * (e + 1); ++i) {
-			sum1 += node[elem3[i - 1]].x * node[elem3[i]].y;
-			sum2 += node[elem3[i - 1]].y * node[elem3[i]].x;
+			sum1 += node2[elem3[i - 1]].x * node2[elem3[i]].y;
+			sum2 += node2[elem3[i - 1]].y * node2[elem3[i]].x;
 		}
-		sum1 += node[elem3[3 * (e + 1) - 1]].x * node[elem3[3 * e]].y;
-		sum2 += node[elem3[3 * (e + 1) - 1]].y * node[elem3[3 * e]].x;
+		sum1 += node2[elem3[3 * (e + 1) - 1]].x * node2[elem3[3 * e]].y;
+		sum2 += node2[elem3[3 * (e + 1) - 1]].y * node2[elem3[3 * e]].x;
 		return fabs(sum1 - sum2) * 0.5;
 	}
 
@@ -269,32 +313,32 @@ public:
 	double elemSpace4(int e) const {
 		double sum1 = 0., sum2 = 0.;
 		for (int i = 4 * e + 1; i < 4 * (e + 1); ++i) {
-			sum1 += node[elem4[i - 1]].x * node[elem4[i]].y;
-			sum2 += node[elem4[i - 1]].y * node[elem4[i]].x;
+			sum1 += node2[elem4[i - 1]].x * node2[elem4[i]].y;
+			sum2 += node2[elem4[i - 1]].y * node2[elem4[i]].x;
 		}
-		sum1 += node[elem4[4 * (e + 1) - 1]].x * node[elem4[4 * e]].y;
-		sum2 += node[elem4[4 * (e + 1) - 1]].y * node[elem4[4 * e]].x;
+		sum1 += node2[elem4[4 * (e + 1) - 1]].x * node2[elem4[4 * e]].y;
+		sum2 += node2[elem4[4 * (e + 1) - 1]].y * node2[elem4[4 * e]].x;
 		return fabs(sum1 - sum2) * 0.5;
 	}
 
 	double elemSpace8(int e) const {
 		double sum1 = 0., sum2 = 0.;
 		for (int i = 8 * e; i < 8 * e + 3; ++i) {
-			sum1 += node[elem8[i]].x * node[elem8[i + 4]].y + node[elem8[i + 4]].x * node[elem8[i + 1]].y;
-			sum2 += node[elem8[i]].y * node[elem8[i + 4]].x + node[elem8[i + 4]].y * node[elem8[i + 1]].x;
+			sum1 += node2[elem8[i]].x * node2[elem8[i + 4]].y + node2[elem8[i + 4]].x * node2[elem8[i + 1]].y;
+			sum2 += node2[elem8[i]].y * node2[elem8[i + 4]].x + node2[elem8[i + 4]].y * node2[elem8[i + 1]].x;
 		}
-		sum1 += node[elem8[8 * e + 3]].x * node[elem8[8 * e + 7]].y + node[elem8[8 * e + 7]].x * node[elem8[8 * e]].y;
-		sum2 += node[elem8[8 * e + 3]].y * node[elem8[8 * e + 7]].x + node[elem8[8 * e + 7]].y * node[elem8[8 * e]].x;
+		sum1 += node2[elem8[8 * e + 3]].x * node2[elem8[8 * e + 7]].y + node2[elem8[8 * e + 7]].x * node2[elem8[8 * e]].y;
+		sum2 += node2[elem8[8 * e + 3]].y * node2[elem8[8 * e + 7]].x + node2[elem8[8 * e + 7]].y * node2[elem8[8 * e]].x;
 		return fabs(sum1 - sum2) * 0.5;
 	}
 
 	//Соотношение сторон
 	double aspectRatio(int e) const {
 		int begin = 4 * e;
-		double minSide = (node[elem4[begin]] - node[elem4[begin + 1]]).norm();
+		double minSide = (node2[elem4[begin]] - node2[elem4[begin + 1]]).norm();
 		double maxSide = minSide;
 		for (int i = 0; i < 4; ++i) {
-			double length = (node[elem4[begin + (i + 1) % 4]] - node[elem4[begin + i]]).norm();
+			double length = (node2[elem4[begin + (i + 1) % 4]] - node2[elem4[begin + i]]).norm();
 			if (length < minSide) minSide = length;
 			else if (length > maxSide) maxSide = length;
 		}
@@ -305,8 +349,8 @@ public:
 	double skewAngleSin(int e) const {
 		int begin = 4 * e;
 		if (4 == 4) {
-			vec2 v1 = (node[elem4[begin]] + node[elem4[begin + 1]] - node[elem4[begin + 2]] - node[elem4[begin + 3]]) * 0.5;
-			vec2 v2 = (node[elem4[begin + 1]] + node[elem4[begin + 2]] - node[elem4[begin + 3]] - node[elem4[begin]]) * 0.5;
+			vec2 v1 = (node2[elem4[begin]] + node2[elem4[begin + 1]] - node2[elem4[begin + 2]] - node2[elem4[begin + 3]]) * 0.5;
+			vec2 v2 = (node2[elem4[begin + 1]] + node2[elem4[begin + 2]] - node2[elem4[begin + 3]] - node2[elem4[begin]]) * 0.5;
 			double scalMult = v1 * v2;
 			return 1. - scalMult * scalMult / ((v1.x * v1.x + v1.y * v1.y) * (v2.x * v2.x + v2.y * v2.y));
 		}

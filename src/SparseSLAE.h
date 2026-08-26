@@ -7,6 +7,19 @@
 
 #include "cuda_runtime.h" //TEMP
 
+#include <iostream>
+#include <fstream>
+#include <algorithm>
+#include <omp.h>
+
+
+#if _OPENMP >= 200805
+typedef unsigned omp_for_t;
+#else
+typedef int omp_for_t;
+#endif
+
+
 //Разреженная СЛАУ (CSR)
 class SparseSLAE {
 
@@ -195,6 +208,7 @@ public:
 				//adj[begin + link] = uniqueLinks[node * dataWidth + link];
 				adj[begin + link] = allLinks[node * dataWidth + link];
 			}
+			std::sort(adj + begin, adj + begin + unLinkCount[node]);
 			for (int i = 0; i < dim; ++i)
 				rows[dim * node + i + 1] = begin * dim * dim + (i + 1) * size * dim + (dim * node + i + 1) * dim;
 		}

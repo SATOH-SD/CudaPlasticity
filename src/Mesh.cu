@@ -2,17 +2,17 @@
 
 #include <filesystem>
 #include <list>
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <deque>
+#include <sstream>
+#include <algorithm>
+#include <omp.h>
 
 #include "vec2.cuh"
 
-__global__ void rectangleNodes(vec2* node, int N2_1, double x1, double h1, double y1, double h2) {
-	int k = blockIdx.x * blockDim.x + threadIdx.x;
-	int i = k / N2_1, j = k % N2_1;
-	node[k].x = x1 + h1 * i;
-	node[k].y = y1 + h2 * j;
-	if (k < 25)
-		printf("%d - %d, %d - %e %e\n", k, i, j, node[k].x, node[k].y);
-}
+#include "FiniteElement.h"
 
 
 void Mesh::genRectangle(double x1, double x2, double y1, double y2, size_t N1, size_t N2, int order) {
@@ -25,87 +25,74 @@ void Mesh::genRectangle(double x1, double x2, double y1, double y2, size_t N1, s
 	count3 = 0;
 	count8 = 0;
 	fillPos();
-	if (0 * useCuda) {
-		int grid = (nodeCount + BS - 1) / BS;
-		int dev_nodeCount = grid * BS;
-		cudaMalloc((void**)&dev_node, dev_nodeCount * sizeof(vec2));
-		double h1 = (x2 - x1) / N1, h2 = (y2 - y1) / N2;
-		std::cout << x1 << " " << h1 << " " << y1 << " " << h2 << "\n";
-		rectangleNodes<<<grid, BS>>>(dev_node, N2 + 1, x1, h1, y1, h2);
-		cudaDeviceSynchronize();
+	
+	//node.resize((N1 + 1) * (N2 + 1));
 		
-		grid = (count4 + BS - 1) / BS;
-		int dev_count4 = grid * BS;
-		cudaMalloc((void**)&dev_elem4, dev_count4 * 4 * sizeof(int));
-
-		//meshToRAM();
-	}
-	else {
-		//node.resize((N1 + 1) * (N2 + 1));
-		
-		delete[] node;
-		delete[] secOrdNodes;
-		node = new vec2[nodeCount];
-		secOrdNodes = new bool[nodeCount];
-		for (int i = 0; i < nodeCount; ++i)
-			secOrdNodes[i] = false;
-		double h1 = (x2 - x1) / N1, h2 = (y2 - y1) / N2;
-		for (int i = 0; i <= N1; ++i)
-			for (int j = 0; j <= N2; ++j) {
-				int k = i * (N2 + 1) + j;
-				node[k].x = x1 + h1 * i;
-				node[k].y = y1 + h2 * j;
-			}
-		delete[] elem3;
-		delete[] elem4;
-		delete[] elem8;
-		elem3 = nullptr;
-		elem8 = nullptr;
-		elem4 = new int[count4 * 4];
-		for (int i = 0; i < N1; ++i)
-			for (int j = 0; j < N2; ++j) {
-				int k = (i * N2) + j;
-
-				int begin = k * 4;
-				elem4[begin] = (i + 1) * (N2 + 1) + j + 1;
-				elem4[begin + 1] = i * (N2 + 1) + j + 1;
-				elem4[begin + 2] = i * (N2 + 1) + j;
-				elem4[begin + 3] = (i + 1) * (N2 + 1) + j;
-			}
-		delete[] borderLength;
-		for (int i = 0; i < bordersCount; ++i)
-			delete[] borders[i];
-		bordersCount = 0;
-		delete[] borders;
-
-		//borders.resize(4);
-		//borders[0].resize(N2 + 1);
-		//borders[1].resize(N1 + 1);
-		//borders[2].resize(N2 + 1);
-		//borders[3].resize(N1 + 1);
-		bordersCount = 4;
-		borders = new int*[bordersCount];
-		borderLength = new int[bordersCount];
-		borderLength[0] = borderLength[2] = N2 + 1;
-		borderLength[1] = borderLength[3] = N1 + 1;
-		for (int i = 0; i < bordersCount; ++i)
-			borders[i] = new int[borderLength[i]];
-		for (int i = 0; i <= N2; ++i) {
-			borders[0][N2 - i] = (N1 + 1) * (N2 + 1) - i - 1;
-			borders[2][N2 - i] = i;
+	delete[] node2;
+	delete[] secOrdNodes;
+	node2 = new vec2[nodeCount];
+	secOrdNodes = new bool[nodeCount];
+	for (int i = 0; i < nodeCount; ++i)
+		secOrdNodes[i] = false;
+	double h1 = (x2 - x1) / N1, h2 = (y2 - y1) / N2;
+	for (int i = 0; i <= N1; ++i)
+		for (int j = 0; j <= N2; ++j) {
+			int k = i * (N2 + 1) + j;
+			node2[k].x = x1 + h1 * i;
+			node2[k].y = y1 + h2 * j;
 		}
-		for (int i = 0; i <= N1; ++i) {
-			//borders[1][i] = (N1 - i) * (N2 + 1);
-			//borders[3][i] = (i + 1) * (N2 + 1) - 1;
-			borders[1][N1 - i] = (i + 1) * (N2 + 1) - 1;
-			borders[3][N1 - i] = (N1 - i) * (N2 + 1);
-		}
-		if (order == 2) remapOrder(N2);
+	delete[] elem3;
+	delete[] elem4;
+	delete[] elem8;
+	elem3 = nullptr;
+	elem8 = nullptr;
+	elem4 = new int[count4 * 4];
+	for (int i = 0; i < N1; ++i)
+		for (int j = 0; j < N2; ++j) {
+			int k = (i * N2) + j;
 
-		ramSaved = true;
-		analysed = false;
-		if (useCuda) meshToGPU();
+			int begin = k * 4;
+			elem4[begin] = (i + 1) * (N2 + 1) + j + 1;
+			elem4[begin + 1] = i * (N2 + 1) + j + 1;
+			elem4[begin + 2] = i * (N2 + 1) + j;
+			elem4[begin + 3] = (i + 1) * (N2 + 1) + j;
+		}
+	delete[] borderLength;
+	for (int i = 0; i < bordersCount; ++i)
+		delete[] borders[i];
+	bordersCount = 0;
+	delete[] borders;
+
+	//borders.resize(4);
+	//borders[0].resize(N2 + 1);
+	//borders[1].resize(N1 + 1);
+	//borders[2].resize(N2 + 1);
+	//borders[3].resize(N1 + 1);
+	bordersCount = 4;
+	borders = new int*[bordersCount];
+	borderLength = new int[bordersCount];
+	borderLength[0] = borderLength[2] = N2 + 1;
+	borderLength[1] = borderLength[3] = N1 + 1;
+	for (int i = 0; i < bordersCount; ++i)
+		borders[i] = new int[borderLength[i]];
+	for (int i = 0; i <= N2; ++i) {
+		borders[0][N2 - i] = (N1 + 1) * (N2 + 1) - i - 1;
+		borders[2][N2 - i] = i;
 	}
+	for (int i = 0; i <= N1; ++i) {
+		//borders[1][i] = (N1 - i) * (N2 + 1);
+		//borders[3][i] = (i + 1) * (N2 + 1) - 1;
+		borders[1][N1 - i] = (i + 1) * (N2 + 1) - 1;
+		borders[3][N1 - i] = (N1 - i) * (N2 + 1);
+	}
+	if (order == 2) remapOrder(N2);
+
+	ramSaved = true;
+	analysed = false;
+	if (useCuda) meshToGPU();
+
+	translateFromLegacy();
+
 	std::cout << "\rMesh generated: " << nodeCount << " nodes, " << elemCount() << " elements\n\n";
 }
 
@@ -169,9 +156,6 @@ void Mesh::genRectWithHole(double x1, double x2, double y1, double y2, double ho
 	//for (size_t i = 0; i <= radN; ++i) \
 			std::cout << steps[i] << "\n";
 
-	
-	
-
 	delete[] borderLength;
 	for (int i = 0; i < bordersCount; ++i)
 		delete[] borders[i];
@@ -179,9 +163,9 @@ void Mesh::genRectWithHole(double x1, double x2, double y1, double y2, double ho
 	delete[] borders;
 
 	nodeCount = borderN * (radN + 1);
-	delete[] node;
+	delete[] node2;
 	delete[] secOrdNodes;
-	node = new vec2[nodeCount];
+	node2 = new vec2[nodeCount];
 	secOrdNodes = new bool[nodeCount];
 	for (int i = 0; i < nodeCount; ++i)
 		secOrdNodes[i] = false;
@@ -197,22 +181,22 @@ void Mesh::genRectWithHole(double x1, double x2, double y1, double y2, double ho
 	int nodeId = 0;
 	double hx = (x2 - x1) / N1, hy = (y2 - y1) / N2;
 	for (int i = 0; i < N1; ++i, ++nodeId) {
-		node[nodeId] = { x1 + i * hx, y1 };
+		node2[nodeId] = { x1 + i * hx, y1 };
 		borders[0][i] = nodeId;
 	}
 	borders[0][borderLength[0] - 1] = nodeId;
 	for (int j = 0; j < N2; ++j, ++nodeId) {
-		node[nodeId] = { x2, y1 + j * hy };
+		node2[nodeId] = { x2, y1 + j * hy };
 		borders[1][j] = nodeId;
 	}
 	borders[1][borderLength[1] - 1] = nodeId;
 	for (int i = 0; i < N1; ++i, ++nodeId) {
-		node[nodeId] = { x2 - i * hx, y2 };
+		node2[nodeId] = { x2 - i * hx, y2 };
 		borders[2][i] = nodeId;
 	}
 	borders[2][borderLength[2] - 1] = nodeId;
 	for (int j = 0; j < N2; ++j, ++nodeId) {
-		node[nodeId] = { x1, y2 - j * hy };
+		node2[nodeId] = { x1, y2 - j * hy };
 		borders[3][j] = nodeId;
 	}
 	borders[3][borderLength[3] - 1] = 0;
@@ -223,7 +207,7 @@ void Mesh::genRectWithHole(double x1, double x2, double y1, double y2, double ho
 	vec2 center(0.5 * (x1 + x2), 0.5 * (y1 + y2));
 	double start = phi * (N1 + N2 * 1.5);
 	for (size_t i = 0; i < borderN; ++i, ++nodeId) {
-		node[nodeId] = center + vec2(cos(start + i * phi), sin(start + i * phi)) * holeRad;
+		node2[nodeId] = center + vec2(cos(start + i * phi), sin(start + i * phi)) * holeRad;
 		borders[4][borderN - i - 1] = nodeId;
 	}
 	borders[4][borderLength[4] - 1] = nodeCount - 1;
@@ -231,9 +215,9 @@ void Mesh::genRectWithHole(double x1, double x2, double y1, double y2, double ho
 	//vec2 rh = (node[radN * borderN] - node[0]) / radN;
 	//for (int i = 1; i < radN; ++i) //rad - 1?
 	//	node[i * borderN] = node[0] + rh * i;
-	vec2 len = (node[radN * borderN] - node[0]);
+	vec2 len = (node2[radN * borderN] - node2[0]);
 	for (size_t i = 1; i < radN; ++i)
-		node[i * borderN] = node[0] + len * (1. - steps[radN - i]);
+		node2[i * borderN] = node2[0] + len * (1. - steps[radN - i]);
 
 	/*rh = (node[nodeCount - 1] - node[borderN - 1]) / radN;
 	for (int i = 1; i < radN; ++i)
@@ -242,9 +226,9 @@ void Mesh::genRectWithHole(double x1, double x2, double y1, double y2, double ho
 		/*vec2 rh = (node[radN * borderN + j] - node[j]) / radN;
 		for (size_t i = 1; i < radN; ++i)
 			node[i * borderN + j] = node[j] + rh * i;*/
-		vec2 len = (node[radN * borderN + j] - node[j]);
+		vec2 len = (node2[radN * borderN + j] - node2[j]);
 		for (size_t i = 1; i < radN; ++i)
-			node[i * borderN + j] = node[j] + len * (1. - steps[radN - i]);
+			node2[i * borderN + j] = node2[j] + len * (1. - steps[radN - i]);
 	}
 
 	count4 = borderN * radN;
@@ -299,6 +283,8 @@ void Mesh::genRectWithHole(double x1, double x2, double y1, double y2, double ho
 		cudaMemcpy(dev_elem4, elem4, 4 * count4 * sizeof(int), cudaMemcpyHostToDevice);
 		cudaMemcpy(dev_elem8, elem8, 8 * count8 * sizeof(int), cudaMemcpyHostToDevice);*/
 	}
+
+	translateFromLegacy();
 
 	std::cout << "\rMesh generated: " << nodeCount << " nodes, " << elemCount() << " elements\n\n";
 	//printAnalysis();
@@ -370,9 +356,9 @@ void Mesh::genRing(double a, double b, size_t N_phi, size_t N_r, int order, int 
 	delete[] borders;
 
 	nodeCount = (N_r + 1) * N_phi;
-	delete[] node;
+	delete[] node2;
 	delete[] secOrdNodes;
-	node = new vec2[nodeCount];
+	node2 = new vec2[nodeCount];
 	secOrdNodes = new bool[nodeCount];
 	for (int i = 0; i < nodeCount; ++i)
 		secOrdNodes[i] = false;
@@ -392,7 +378,7 @@ void Mesh::genRing(double a, double b, size_t N_phi, size_t N_r, int order, int 
 			double r = steps[N_r - i];
 
 			double phi = h_phi * j;
-			node[i * N_phi + j] = vec2(r * cos(phi), r * sin(phi));
+			node2[i * N_phi + j] = vec2(r * cos(phi), r * sin(phi));
 		}
 		borders[1][N_phi - j] = j;
 		borders[0][j] = N_r * N_phi + j;
@@ -438,6 +424,8 @@ void Mesh::genRing(double a, double b, size_t N_phi, size_t N_r, int order, int 
 	if (order == 2) remapOrder(N_r);
 
 	if (useCuda) meshToGPU();
+
+	translateFromLegacy();
 
 	std::cout << "\rMesh generated: " << nodeCount << " nodes, " << elemCount() << " elements\n\n";
 	//printAnalysis();
@@ -490,9 +478,9 @@ void Mesh::genArc(double a, double b, double phi1, double phi2, size_t N_phi, si
 	delete[] borders;
 
 	nodeCount = (N_r + 1) * (N_phi + 1);
-	delete[] node;
+	delete[] node2;
 	delete[] secOrdNodes;
-	node = new vec2[nodeCount];
+	node2 = new vec2[nodeCount];
 	secOrdNodes = new bool[nodeCount];
 	for (int i = 0; i < nodeCount; ++i)
 		secOrdNodes[i] = false;
@@ -522,7 +510,7 @@ void Mesh::genArc(double a, double b, double phi1, double phi2, size_t N_phi, si
 			double r = steps[N_r - j];
 
 			double phi = phi1 + h_phi * i;
-			node[i * (N_r + 1) + j] = vec2(r * cos(phi), r * sin(phi));
+			node2[i * (N_r + 1) + j] = vec2(r * cos(phi), r * sin(phi));
 		}
 	}
 	count4 = N_r * N_phi;
@@ -556,6 +544,8 @@ void Mesh::genArc(double a, double b, double phi1, double phi2, size_t N_phi, si
 
 	if (useCuda) meshToGPU();
 
+	translateFromLegacy();
+
 	std::cout << "\rMesh generated: " << nodeCount << " nodes, " << elemCount() << " elements\n\n";
 }
 
@@ -587,8 +577,8 @@ void Mesh::renumerateRing(int borderN) {
 			borders[i][j] = newNodes[borders[i][j]];
 	std::vector<vec2> nodes(nodeCount);
 	for (size_t i = 0; i < nodeCount; ++i)
-		nodes[newNodes[i]] = node[i];
-	memcpy(node, nodes.data(), nodeCount * sizeof(vec2));
+		nodes[newNodes[i]] = node2[i];
+	memcpy(node2, nodes.data(), nodeCount * sizeof(vec2));
 }
 
 void Mesh::smoothRing(int borderN) {
@@ -612,12 +602,12 @@ void Mesh::smoothRing(int borderN) {
 					node[(i - 1) * borderN + j + 1] + node[(i - 1) * borderN + j - 1]);
 				//node[i * borderN + j] = (d_eta * (3. * node[(i - 1) * borderN + j] + node[(i + 1) * borderN + j]) - \
 					d_xi * (3. * node[i * borderN + j - 1] + node[i * borderN + j + 1])) * 0.25 / (d_eta - d_xi);
-				double ddy = 0.5 * ((node[(i + 1) * borderN + j] - node[i * borderN + j]).norm() + (node[(i - 1) * borderN + j] - node[i * borderN + j]).norm()),
-					ddx = 0.5 * ((node[i * borderN + j + 1] - node[i * borderN + j]).norm() + (node[i * borderN + j - 1] - node[i * borderN + j]).norm());
+				double ddy = 0.5 * ((node2[(i + 1) * borderN + j] - node2[i * borderN + j]).norm() + (node2[(i - 1) * borderN + j] - node2[i * borderN + j]).norm()),
+					ddx = 0.5 * ((node2[i * borderN + j + 1] - node2[i * borderN + j]).norm() + (node2[i * borderN + j - 1] - node2[i * borderN + j]).norm());
 				//node[i * borderN + j] = (node[(i + 1) * borderN + j] * ddx + node[(i - 1) * borderN + j] * ddy) / (ddx + ddy);
 				//node[i * borderN + j] = node[(i + 1) * borderN + j] - (node[(i + 1) * borderN + j] - node[i * borderN + j]).normalize() * ddx;
-				node[i * borderN + j] = node[(i + 1) * borderN + j] - \
-					(node[(i + 1) * borderN + j] - node[i * borderN + j]).normalize() * 2. * pi * node[(i + 1) * borderN + j].norm() / borderN;
+				node2[i * borderN + j] = node2[(i + 1) * borderN + j] - \
+					(node2[(i + 1) * borderN + j] - node2[i * borderN + j]).normalize() * 2. * pi * node2[(i + 1) * borderN + j].norm() / borderN;
 			}
 	}
 }
@@ -691,10 +681,10 @@ void Mesh::remapOrder(int width) {
 	vec2* nodes = new vec2[nodeCount - count8];
 	for (size_t i = 0; i < nodeCount; ++i)
 		if (remNodes[i])
-			nodes[newNodes[i]] = node[i];
+			nodes[newNodes[i]] = node2[i];
 	nodeCount -= count8;
-	delete[] node;
-	node = nodes;
+	delete[] node2;
+	node2 = nodes;
 
 	delete[] secOrdNodes;
 	secOrdNodes = new bool[nodeCount];
@@ -763,7 +753,7 @@ void Mesh::renumByDirection(vec2 direction) {
 	for (int i = 0; i < nodeCount; ++i) {
 		oldNodes[i] = i;
 		//ranges[i] = (node[i] - node[keyNode]).norm();
-		ranges[i] = node[i] * direction;
+		ranges[i] = node2[i] * direction;
 	}
 	
 	/*int threads = omp_get_max_threads();
@@ -841,16 +831,13 @@ void Mesh::renumByDirection(vec2 direction) {
 			borders[i][j] = newNodes[borders[i][j]];
 	vec2* nodes = new vec2[nodeCount];
 	for (size_t i = 0; i < nodeCount; ++i)
-		nodes[newNodes[i]] = node[i];
-	memcpy(node, nodes, nodeCount * sizeof(vec2));
+		nodes[newNodes[i]] = node2[i];
+	memcpy(node2, nodes, nodeCount * sizeof(vec2));
 	for (int i = 0; i < nodeCount; ++i)
 		secOrdNodes[i] = false;
 	for (int e = 0; e < count8; ++e)
 		for (int i = 4; i < 8; ++i)
 			secOrdNodes[elem8[8 * e + i]] = true;
-
-	
-	
 
 	delete[] newNodes;
 	delete[] oldNodes;
@@ -861,6 +848,9 @@ void Mesh::renumByDirection(vec2 direction) {
 	//delete[] displs;
 
 	if (useCuda) meshToGPU();
+
+	translateFromLegacy();
+
 	std::cout << "Nodes renumbered\n";
 	/*if (count4) {
 		std::cout << "\nElements (4 nodes): " << count4 << "\n";
@@ -873,10 +863,301 @@ void Mesh::renumByDirection(vec2 direction) {
 }
 
 
+using RootStruct = std::deque<std::deque<unsigned>>;  //список уровней
+
+
+// Построение корневой структуры от базового узла
+static void initRootStruct(RootStruct& lvl, unsigned nodeCount, unsigned* adj, unsigned* adjIdx, unsigned baseNode) {
+	std::vector<bool> mask(nodeCount, true);
+	lvl.push_back({ baseNode });
+	//std::cout << "baseNode " << baseNode << "\n";
+	mask[baseNode] = false;
+	bool notAll = false;
+	do {
+		std::deque<unsigned> newLvl;
+		for (unsigned cell : lvl.back())
+			for (unsigned i = adjIdx[cell]; i < adjIdx[cell + 1]; ++i) {
+				//std::cout << i << " ";
+				unsigned cmi = adj[i];
+				if (mask[cmi]) {
+					newLvl.push_back(adj[i]);
+					mask[adj[i]] = false;
+				}
+			}
+		lvl.push_back(newLvl);
+		notAll = false;
+		for (bool m : mask)
+			if (m) {
+				notAll = true;
+				break;
+			}
+	} while (notAll);
+}
+
+
+// Поиск псевдопереферийного узла и перестроение корневой структуры от него
+static unsigned findRoot(RootStruct& lvl, unsigned nodeCount, unsigned* adj, unsigned* adjIdx) {
+	unsigned y = lvl.front().front(), max = lvl.size();
+	for (;;) {
+		unsigned min = SIZE_MAX;
+		unsigned imin = 0;
+		for (int newY : lvl.back()) {
+			unsigned locMin = adjIdx[newY + 1] - adjIdx[newY];
+			if (locMin < min) {
+				min = locMin;
+				imin = newY;
+			}
+		}
+		RootStruct newRS;
+		initRootStruct(newRS, nodeCount, adj, adjIdx, imin);
+		if (newRS.size() > lvl.size())
+			newRS.swap(lvl);
+		else
+			break;
+	}
+	return lvl.front().front();
+}
+
+
+void Mesh::renumRCM() {
+	checkNodeAdjStruct();
+
+	RootStruct rs;
+	initRootStruct(rs, nodeCount, nodeAdjStruct.adj, nodeAdjStruct.adjIdx, 0);
+	findRoot(rs, nodeCount, nodeAdjStruct.adj, nodeAdjStruct.adjIdx);
+
+	std::vector<size_t> degs(nodeCount);  // степени
+	for (size_t i = 0; i < degs.size(); ++i)
+		degs[i] = nodeAdjStruct.adjIdx[i + 1] - nodeAdjStruct.adjIdx[i];
+
+	// исключение учёта связей с предыдущими уровнями (не обязательно и очень медленно)
+	/*auto cur = rs.begin();
+	for (auto prev = cur++; cur != rs.end(); ++cur, ++prev)
+		for (auto node0 : *cur)
+			for (int i = nodeAdjStruct.adjIdx[node0]; i < nodeAdjStruct.adjIdx[node0 + 1]; ++i)
+				for (int node1 : *prev)
+					if (nodeAdjStruct.adj[i] == node1)
+						--degs[node0];*/
+
+	const unsigned ui32max = ~unsigned(0);
+	std::vector<unsigned> newNodes(nodeCount, ui32max);
+
+	unsigned newN = 0;
+	newNodes[rs.front().front()] = newN++;
+	for (auto lv = rs.begin(); lv != rs.end(); ++lv) {
+		std::vector<unsigned> nextNodes;
+		nextNodes.reserve(20);
+		std::vector<unsigned> lvl(lv->size());
+		std::copy(lv->begin(), lv->end(), lvl.begin());
+
+		// отсортировать по возрастанию уже перенумерованных
+		std::sort(lvl.begin(), lvl.end(), [&](unsigned a1, unsigned a2) { return newNodes[a1] < newNodes[a2]; });
+
+		for (unsigned cell : lvl) {
+			nextNodes.clear();
+			for (unsigned i = nodeAdjStruct.adjIdx[cell]; i < nodeAdjStruct.adjIdx[cell + 1]; ++i)
+				if (newNodes[nodeAdjStruct.adj[i]] == ui32max)
+					nextNodes.push_back(nodeAdjStruct.adj[i]);
+
+			// отсортировать по возрастанию степеней
+			std::sort(nextNodes.begin(), nextNodes.end(), [&](unsigned a1, unsigned a2) { return degs[a1] < degs[a2]; });
+
+			//расставить номера
+			for (unsigned i = 0; i < nextNodes.size(); ++i)
+				newNodes[nextNodes[i]] = newN++;
+		}
+	}
+
+	for (unsigned i = 0; i < nodeCount; ++i)      // обращение нумерации
+		newNodes[i] = nodeCount - newNodes[i] - 1;
+
+	FiniteElement& lastElem = elemInfo[elemTypes - 1];
+	for (unsigned i = 0; i < lastElem.memIdx + lastElem.elemCount * lastElem.nodeCount; ++i)
+		elem[i] = newNodes[elem[i]];
+
+	hptr<double> nodes(dim * nodeCount);
+	for (unsigned i = 0; i < nodeCount; ++i)
+		memcpy(nodes + dim * newNodes[i], node + dim * i, dim * sizeof(double));
+	memcpy(node, nodes, dim * nodeCount * sizeof(double));
+
+	// TEMP
+	memcpy(node2, nodes, nodeCount * sizeof(vec2));
+	for (int i = 0; i < 3 * count3; ++i)
+		elem3[i] = newNodes[elem3[i]];
+	for (int i = 0; i < 4 * count4; ++i)
+		elem4[i] = newNodes[elem4[i]];
+	for (int i = 0; i < 8 * count8; ++i)
+		elem8[i] = newNodes[elem8[i]];
+	for (int i = 0; i < bordersCount; ++i)
+		for (int j = 0; j < borderLength[i]; ++j)
+			borders[i][j] = newNodes[borders[i][j]];
+	for (int i = 0; i < nodeCount; ++i)
+		secOrdNodes[i] = false;
+	for (int e = 0; e < count8; ++e)
+		for (int i = 4; i < 8; ++i)
+			secOrdNodes[elem8[8 * e + i]] = true;
+	if (useCuda) meshToGPU();
+	// TEMP
+
+	hptr<unsigned> oldNodes(nodeCount);
+	for (size_t i = 0; i < nodeCount; ++i)
+		oldNodes[newNodes[i]] = i;
+
+	hptr<unsigned> newAdj(nodeAdjStruct.adjIdx[nodeCount]);
+	hptr<unsigned> newAdjIdx(nodeCount + 1);
+	newAdjIdx[0] = 0;
+	for (unsigned i = 0; i < nodeCount; ++i) {
+		unsigned oldNode = oldNodes[i];
+		unsigned nodeDataBegin = nodeAdjStruct.adjIdx[oldNode];
+		unsigned nodeDataEnd = nodeAdjStruct.adjIdx[oldNode + 1];
+		unsigned nodeDataSize = nodeDataEnd - nodeDataBegin;
+		unsigned newNodeDataBegin = newAdjIdx[i];
+		newAdjIdx[i + 1] = newNodeDataBegin + nodeDataSize;
+
+		for (unsigned i = 0; i < nodeDataSize; ++i)
+			newAdj[newNodeDataBegin + i] = newNodes[nodeAdjStruct.adj[nodeDataBegin + i]];
+		std::sort(newAdj + newNodeDataBegin, newAdj + newNodeDataBegin + nodeDataSize);
+	}
+	nodeAdjStruct.adj.swap(newAdj);
+	nodeAdjStruct.adjIdx.swap(newAdjIdx);
+
+	//nodeAdjStruct.init(nodeCount, elemTypes, elemInfo, elem);
+
+	std::cout << "Nodes renumbered\n";
+}
+
+
+void Mesh::setGeomForElem(GeomType geomType, unsigned elemType) {
+	FiniteElement& type = elemInfo[elemType];
+	type.geomType = geomType;
+	switch (geomType) {
+	case GeomType::planeStress:
+		mallocThickness(elemType);
+		setThickness(elemType, 1.);
+		break;
+	default:
+		type.data.free();
+	}
+}
+
+
+void Mesh::mallocThickness(unsigned elemType) {
+	FiniteElement& type = elemInfo[elemType];
+	type.data.realloc(type.elemCount * type.nodeCount);
+}
+
+
+void Mesh::setThickness(unsigned elemType, double h) {
+	FiniteElement& type = elemInfo[elemType];
+	for (unsigned i = 0; i < type.elemCount * type.nodeCount; ++i)
+		type.data[i] = h;
+}
+
+void Mesh::setThickness(unsigned elemType, std::function<double(const double*)> h) {
+	FiniteElement& type = elemInfo[elemType];
+	unsigned* locElem = elem + type.memIdx;
+	for (unsigned i = 0; i < type.elemCount * type.nodeCount; ++i)
+		type.data[i] = h(node + locElem[i] * dim);
+}
+
+
+void Mesh::setGeomType(GeomType geomType) {
+	for (unsigned t = 0; t < elemTypes; ++t) {
+		setGeomForElem(geomType, t);
+	}
+}
+
+
+void Mesh::setGeomType(GeomType geomType, unsigned blockId) {
+	for (unsigned t = 0; t < elemTypes; ++t) {
+		FiniteElement& type = elemInfo[t];
+		if (type.blockId == blockId) {
+			setGeomForElem(geomType, t);
+		}
+	}
+}
+
+
+void Mesh::setPlaneWithThickness(double h) {
+	for (unsigned t = 0; t < elemTypes; ++t) {
+		FiniteElement& type = elemInfo[t];
+		type.geomType = GeomType::planeStress;
+		mallocThickness(t);
+		setThickness(t, h);
+	}
+	fillBorderH(); // TEMP
+}
+
+void Mesh::setPlaneWithThickness(std::function<double(const double*)> h) {
+	for (unsigned t = 0; t < elemTypes; ++t) {
+		FiniteElement& type = elemInfo[t];
+		type.geomType = GeomType::planeStress;
+		mallocThickness(t);
+		setThickness(t, h);
+	}
+	fillBorderH(); // TEMP
+}
+
+void Mesh::setPlaneWithThickness(unsigned blockId, double h) {
+	for (unsigned t = 0; t < elemTypes; ++t) {
+		FiniteElement& type = elemInfo[t];
+		if (type.blockId == blockId) {
+			type.geomType = GeomType::planeStress;
+			mallocThickness(t);
+			setThickness(t, h);
+		}
+	}
+	fillBorderH(); // TEMP
+}
+
+void Mesh::setPlaneWithThickness(unsigned blockId, std::function<double(const double*)> h) {
+	for (unsigned t = 0; t < elemTypes; ++t) {
+		FiniteElement& type = elemInfo[t];
+		if (type.blockId == blockId) {
+			type.geomType = GeomType::planeStress;
+			mallocThickness(t);
+			setThickness(t, h);
+		}
+	}
+	fillBorderH(); // TEMP
+}
+
+
+void Mesh::fillBorderH() {
+	hptr<unsigned> nodeMap(3 * nodeCount); // { elemType, elem, node in elem }
+	for (unsigned t = 0; t < elemTypes; ++t) {
+		FiniteElement& type = elemInfo[t];
+		unsigned* locElem = elem + type.memIdx;
+		for (unsigned e = 0; e < type.elemCount; ++e)
+			for (unsigned i = 0; i < type.nodeCount; ++i) {
+				unsigned node = locElem[type.nodeCount * e + i];
+				nodeMap[3 * node] = t;
+				nodeMap[3 * node + 1] = e;
+				nodeMap[3 * node + 2] = i;
+			}
+	}
+	borderH.realloc(borderIdx[bordersCount]);
+	for (unsigned j = 0; j < borderIdx[bordersCount]; ++j) {
+		unsigned node = border[j];
+		unsigned t = nodeMap[3 * node];
+		unsigned e = nodeMap[3 * node + 1];
+		unsigned i = nodeMap[3 * node + 2];
+		FiniteElement& type = elemInfo[t];
+		switch (type.geomType) {
+		case GeomType::planeStress:
+			borderH[j] = type.data[e * type.nodeCount + i];
+			break;
+		default:
+			borderH[j] = 1.;
+		}
+	}
+}
+
+
 void Mesh::meshToRAM() {
-	delete[] node;
-	node = new vec2[nodeCount];
-	cudaMemcpy(node, dev_node, nodeCount * sizeof(vec2), cudaMemcpyDeviceToHost);
+	delete[] node2;
+	node2 = new vec2[nodeCount];
+	cudaMemcpy(node2, dev_node, nodeCount * sizeof(vec2), cudaMemcpyDeviceToHost);
 	
 	delete[] elem3;
 	delete[] elem4;
@@ -899,17 +1180,6 @@ void Mesh::meshToRAM() {
 		//cudaMemcpy(borders[i], dev_borders[i], borderLength[i] * sizeof(int), cudaMemcpyDeviceToHost);
 	}
 	//std::clog << "borders copied\n";
-	if (analysed) {
-		delete[] spaces;
-		spaces = new double[count4];
-		cudaMemcpy(spaces, dev_spaces, count4 * sizeof(double), cudaMemcpyDeviceToHost);
-		delete[] aspects;
-		aspects = new double[count4];
-		cudaMemcpy(aspects, dev_aspects, count4 * sizeof(double), cudaMemcpyDeviceToHost);
-		delete[] skewAngles;
-		skewAngles = new double[count4];
-		cudaMemcpy(skewAngles, dev_skewAngles, count4 * sizeof(double), cudaMemcpyDeviceToHost);
-	}
 	ramSaved = true;
 }
 
@@ -922,7 +1192,7 @@ void Mesh::meshToGPU() {
 	cudaMalloc((void**)&dev_node, (nodeCount + BS - 1) / BS * BS * sizeof(vec2));
 	cudaMemset(dev_node, 0, ((nodeCount + BS - 1) / BS * BS - nodeCount) * sizeof(vec2));
 	//cudaMalloc((void**)&dev_node, nodeCount * sizeof(vec2));
-	cudaMemcpy(dev_node, node, nodeCount * sizeof(vec2), cudaMemcpyHostToDevice);
+	cudaMemcpy(dev_node, node2, nodeCount * sizeof(vec2), cudaMemcpyHostToDevice);
 
 	cudaMalloc((void**)&dev_elem3, 3 * count3 * sizeof(int));
 	cudaMalloc((void**)&dev_elem4, 4 * count4 * sizeof(int));
@@ -940,17 +1210,7 @@ void Mesh::meshToGPU() {
 	//	cudaMalloc((void**)&(dev_borders[i]), borderLength[i] * sizeof(int));
 	//	cudaMemcpy(dev_borders[i], borders[i], borderLength[i] * sizeof(int), cudaMemcpyHostToDevice);
 	//}
-	if (analysed) {
-		cudaFree(dev_spaces);
-		cudaMalloc((void**)&dev_spaces, elemCount() * sizeof(double));
-		cudaMemcpy(dev_spaces, spaces, elemCount() * sizeof(double), cudaMemcpyHostToDevice);
-		cudaFree(dev_aspects);
-		cudaMalloc((void**)&dev_aspects, elemCount() * sizeof(double));
-		cudaMemcpy(dev_aspects, aspects, elemCount() * sizeof(double), cudaMemcpyHostToDevice);
-		cudaFree(dev_skewAngles);
-		cudaMalloc((void**)&dev_skewAngles, elemCount() * sizeof(double));
-		cudaMemcpy(dev_skewAngles, skewAngles, elemCount() * sizeof(double), cudaMemcpyHostToDevice);
-	}
+	
 	useCuda = true;
 }
 
@@ -973,7 +1233,7 @@ bool Mesh::loadFromFile(const std::string& fileName) {
 	count3 = count4 = count8 = 0;
 	nodeCount = 0;
 
-	delete[] node;
+	delete[] node2;
 	delete[] secOrdNodes;
 	delete[] elem3;
 	delete[] elem4;
@@ -991,9 +1251,6 @@ bool Mesh::loadFromFile(const std::string& fileName) {
 		cudaFree(dev_elem3); dev_elem3 = nullptr;
 		cudaFree(dev_elem4); dev_elem4 = nullptr;
 		cudaFree(dev_elem8); dev_elem8 = nullptr;
-		cudaFree(dev_spaces); dev_spaces = nullptr;
-		cudaFree(dev_aspects); dev_aspects = nullptr;
-		cudaFree(dev_skewAngles); dev_skewAngles = nullptr;
 	}
 
 	unsigned maxIndex = 0, input = 0;
@@ -1076,7 +1333,7 @@ bool Mesh::loadFromFile(const std::string& fileName) {
 	elem3 = new int[3 * count3];
 	elem4 = new int[4 * count4];
 	elem8 = new int[8 * count8];
-	node = new vec2[nodeCount];
+	node2 = new vec2[nodeCount];
 	secOrdNodes = new bool[nodeCount];
 	for (int i = 0; i < nodeCount; ++i)
 		secOrdNodes[i] = false;
@@ -1095,7 +1352,7 @@ bool Mesh::loadFromFile(const std::string& fileName) {
 					std::istringstream ss(line);
 					ss >> input;
 					indexes[input] = curNode;
-					ss >> node[curNode].x >> node[curNode].y;
+					ss >> node2[curNode].x >> node2[curNode].y;
 					++curNode;
 
 					/*--input;
@@ -1213,7 +1470,7 @@ bool Mesh::loadFromFile(const std::string& fileName) {
 		super = indexes[super];
 	for (unsigned super : superNodes) {
 		for (unsigned i = super + 1; i < nodeCount; ++i)
-			node[i - 1] = node[i];
+			node2[i - 1] = node2[i];
 		--nodeCount;
 		for (unsigned i = 0; i < 3 * count3; ++i)
 			if (elem3[i] > super)
@@ -1259,6 +1516,8 @@ bool Mesh::loadFromFile(const std::string& fileName) {
 	analysed = false;
 	if (useCuda) meshToGPU();
 
+	translateFromLegacy();
+
 	std::cout << "\rMesh loaded: " << nodeCount << " nodes, " << elemCount() << " elements\n\n";
 
 	//DEBUG
@@ -1296,7 +1555,7 @@ void Mesh::saveAsVtk(const std::string& fileName) {
 	file << "DATASET POLYDATA\n";
 	file << "POINTS " << nodeCount << " float\n";
 	for (int i = 0; i < nodeCount; ++i)
-		file << node[i].x << " " << node[i].y << " " << 0 << "\n";
+		file << node2[i].x << " " << node2[i].y << " " << 0 << "\n";
 	file << "POLYGONS " << elemCount() << " " << 4 * count3 + 5 * count4 + 9 * count8;
 	for (size_t i = 0; i < count3; ++i) {
 		file << "\n3 ";
@@ -1338,13 +1597,125 @@ void Mesh::saveAsVtk(const std::string& fileName) {
 	file.close();
 }
 
+
+// TODO: change to new data format
+void Mesh::saveAsVtu(const std::string& fileName) {
+	std::cout << "\nSaving...\n";
+	double t = -omp_get_wtime();
+
+	std::ofstream file(fileName, std::ios_base::out);
+
+	file << "<?xml version=\"1.0\"?>" \
+		<< "\n<VTKFile type=\"UnstructuredGrid\" version=\"0.1\" byte_order=\"LittleEndian\" header_type=\"UInt64\" >" \
+		<< "\n\t<UnstructuredGrid>" \
+		<< "\n\t\t<Piece NumberOfPoints=\"" << nodeCount << "\" NumberOfCells=\"" << totalElems << "\">";
+
+	file << "\n\t\t\t<PointData>";  // Данные в узлах
+	// Номера узлов
+	file << "\n\t\t\t\t<DataArray type=\"UInt32\" Name=\"NodeID\" NumberOfComponents=\"1\" format=\"ascii\" >\n";
+	for (unsigned i = 0; i < nodeCount; ++i)
+		file << i << " ";
+	file << "\n\t\t\t\t</DataArray>";
+	// Толщина плоскостей (и оболочек)
+	bool hasThickness = false;
+	for (unsigned t = 0; t < elemTypes; ++t) {
+		GeomType type = elemInfo[t].geomType;
+		if (type == GeomType::planeStress) {
+			hasThickness = true;
+			break;
+		}
+	}
+	if (hasThickness) {
+		file << "\n\t\t\t\t<DataArray type=\"Float64\" Name=\"Thickness\" NumberOfComponents=\"1\" format=\"ascii\" >\n";
+		hptr<double> nodeH(nodeCount);
+		nodeH.setZero(nodeCount);
+		hptr<unsigned> inNodeCount(nodeCount);
+		inNodeCount.setZero(nodeCount);
+		for (unsigned t = 0; t < elemTypes; ++t) {
+			FiniteElement& type = elemInfo[t];
+			if (type.geomType == GeomType::planeStress) {
+				unsigned* locElem = elem + type.memIdx;
+				for (unsigned i = 0; i < type.nodeCount * type.elemCount; ++i) {
+					unsigned ni = locElem[i];
+					nodeH[ni] += type.data[i];
+					++inNodeCount[ni];
+				}
+			}
+		}
+		for (unsigned i = 0; i < nodeCount; ++i)
+			file << (inNodeCount[i] ? nodeH[i] / inNodeCount[i] : 0.) << " ";
+		file << "\n\t\t\t\t</DataArray>";
+	}
+
+	file << "\n\t\t\t</PointData>";
+
+	file << "\n\t\t\t<CellData>";  // Данные в элементах
+	// Номера элементов
+	file << "\n\t\t\t\t<DataArray type=\"UInt32\" Name=\"ElementID\" NumberOfComponents=\"1\" format=\"ascii\" >\n";
+	for (unsigned i = 0; i < totalElems; ++i)
+		file << i << " ";
+	file << "\n\t\t\t\t</DataArray>";
+	// Цвета
+	if (!colorMap.empty()) {
+		file << "\n\t\t\t\t<DataArray type=\"UInt8\" Name=\"Color\" NumberOfComponents=\"1\" format=\"ascii\" >\n";
+		for (unsigned i = 0; i < totalElems; ++i)
+			file << (unsigned)colorMap.elemColor[i] << " ";
+		file << "\n\t\t\t\t</DataArray>";
+	}
+	file << "\n\t\t\t</CellData>";
+
+	file << "\n\t\t\t<Points>";  // Узлы
+	file << "\n\t\t\t\t<DataArray type=\"Float64\" Name=\"Points\" NumberOfComponents=\"3\" format=\"ascii\" >\n";
+	for (unsigned i = 0; i < nodeCount; ++i)
+		file << node2[i].x << " " << node2[i].y << " 0 ";
+	file << "\n\t\t\t\t</DataArray>";
+	file << "\n\t\t\t</Points>";
+
+	file << "\n\t\t\t<Cells>";  // Элементы
+	file << "\n\t\t\t\t<DataArray type=\"UInt32\" Name=\"connectivity\" format=\"ascii\" >\n";
+	for (int i = 0; i < count3 * 3; ++i)
+		file << elem3[i] << " ";
+	for (int i = 0; i < count4 * 4; ++i)
+		file << elem4[i] << " ";
+	for (int i = 0; i < count8 * 8; ++i)
+		file << elem8[i] << " ";
+	file << "\n\t\t\t\t</DataArray>";
+	file << "\n\t\t\t\t<DataArray type=\"UInt32\" Name=\"offsets\" format=\"ascii\" >\n";
+	unsigned offset = 0;
+	for (int i = 0; i < count3; ++i)
+		file << (offset += 3) << " ";
+	for (int i = 0; i < count4; ++i)
+		file << (offset += 4) << " ";
+	for (int i = 0; i < count8; ++i)
+		file << (offset += 8) << " ";
+	file << "\n\t\t\t\t</DataArray>";
+	file << "\n\t\t\t\t<DataArray type=\"UInt32\" Name=\"types\" format=\"ascii\" >\n";
+	for (int i = 0; i < count3; ++i)
+		file << "5 ";
+	for (int i = 0; i < count4; ++i)
+		file << "9 ";
+	for (int i = 0; i < count8; ++i)
+		file << "23 ";
+	file << "\n\t\t\t\t</DataArray>";
+	file << "\n\t\t\t</Cells>";
+
+	file << "\n\t\t</Piece>";
+	file << "\n\t</UnstructuredGrid>";
+	file << "\n</VTKFile>";
+
+	file.close();
+	t += omp_get_wtime();
+	std::cout << "Mesh saved in file " << fileName << " [" << t << " sec]\n";
+}
+
+
 //Вывод на экран
 void Mesh::print() {
 	if (!ramSaved)
 		meshToRAM();
 	std::cout << "Nodes\n" << nodeCount << "\n";
 	for (size_t i = 0; i < nodeCount; ++i)
-		std::cout << i + 1 << " " << node[i].x << " " << node[i].y << "\n";
+		std::cout << i + 1 << " " << node2[i].x << " " << node2[i].y << "\n";
 	if (count3) {
 		std::cout << "\nElements (3 nodes): " << count3 << "\n";
 		for (size_t i = 0; i < count3; ++i) {
@@ -1378,6 +1749,26 @@ void Mesh::print() {
 	std::cout << std::endl;
 }
 
+
+void Mesh::printElemInfo() const {
+	std::cout << elemTypes << " finite element type" << (elemTypes == 1 ? "" : "s") << "\n";
+	for (unsigned i = 0; i < elemTypes; ++i) {
+		std::cout << "Type " << i << ":\n";
+		elemInfo[i].print();
+	}
+}
+
+
+void Mesh::printBorder() const {
+	for (unsigned i = 0; i < bordersCount; ++i) {
+		std::cout << "Border " << i << ": " << borderIdx[i + 1] - borderIdx[i] << "\n";
+		for (unsigned j = borderIdx[i]; j < borderIdx[i + 1]; ++j)
+			std::cout << border[j] << " ";
+		std::cout << "\n";
+	}
+}
+
+
 //TO DO: fix for elem8
 void Mesh::printAnalysis() {//TO DO: all element types
 	delete[] spaces;
@@ -1410,15 +1801,6 @@ void Mesh::printAnalysis() {//TO DO: all element types
 	avrAspectRatio /= count4;
 	avrSpace /= count4;
 	avrSkewAngleSin /= count4;
-	cudaFree(dev_spaces);
-	cudaMalloc((void**)&dev_spaces, count4 * sizeof(double));
-	cudaMemcpy(dev_spaces, spaces, count4 * sizeof(double), cudaMemcpyHostToDevice);
-	cudaFree(dev_aspects);
-	cudaMalloc((void**)&dev_aspects, count4 * sizeof(double));
-	cudaMemcpy(dev_aspects, aspects, count4 * sizeof(double), cudaMemcpyHostToDevice);
-	cudaFree(dev_skewAngles);
-	cudaMalloc((void**)&dev_skewAngles, count4 * sizeof(double));
-	cudaMemcpy(dev_skewAngles, skewAngles, count4 * sizeof(double), cudaMemcpyHostToDevice);
 	std::cout << "Mesh analysis:"
 		<< "\nNodes max index difference in element: " << findMaxIndexDiff() \
 		<< "\nSpace: avr = " << avrSpace << ", min = " << minSpace << ", max = " << maxSpace \
@@ -1428,4 +1810,70 @@ void Mesh::printAnalysis() {//TO DO: all element types
 		<< avrSkewAngleSin << ", min = " << minSkewAngleSin << ", max = " << maxSkewAngleSin \
 		<< "\n" << std::endl;
 	analysed = true;
+}
+
+
+void Mesh::translateFromLegacy() {
+	node.realloc(nodeCount * dim);
+	memcpy(node, node2, nodeCount * 2 * sizeof(double));
+
+	elemTypes = unsigned(count3 > 0) + unsigned(count4 > 0) + unsigned(count8 > 0);
+	elemInfo.realloc(elemTypes);
+	//elemInfo.resize(elemTypes);
+	totalElems = count3 + count4 + count8;
+	elem.realloc(count3 * 3 + count4 * 4 + count8 * 8);
+
+	unsigned poolIdx = 0;
+	unsigned memIdx = 0;
+	unsigned typeIdx = 0;
+	if (count3) {
+		FiniteElement& type = elemInfo[typeIdx++];
+		type.elemCount = count3;
+		type.elemDim = 2;
+		type.setType(ElemType::tria1, 1);
+		//type.geomType = GeomType::planeStress;
+		type.nodeCount = 3;
+		type.blockId = 0;
+		type.poolIdx = poolIdx;
+		type.memIdx = memIdx;
+		poolIdx += count3;
+		memIdx += count3 * 3;
+		memcpy(elem + type.memIdx, elem3, count3 * 3 * sizeof(unsigned));
+	}
+	if (count4) {
+		FiniteElement& type = elemInfo[typeIdx++];
+		type.elemCount = count4;
+		type.elemDim = 2;
+		type.setType(ElemType::quad1, 2);
+		//type.geomType = GeomType::planeStress;
+		type.nodeCount = 4;
+		type.blockId = 0;
+		type.poolIdx = poolIdx;
+		type.memIdx = memIdx;
+		poolIdx += count4;
+		memIdx += count4 * 4;
+		memcpy(elem + type.memIdx, elem4, count4 * 4 * sizeof(unsigned));
+	}
+	if (count8) {
+		FiniteElement& type = elemInfo[typeIdx++];
+		type.elemCount = count8;
+		type.elemDim = 2;
+		type.setType(ElemType::quad2, 3);
+		//type.geomType = GeomType::planeStress;
+		type.nodeCount = 8;
+		type.blockId = 0;
+		type.poolIdx = poolIdx;
+		type.memIdx = memIdx;
+		poolIdx += count8;
+		memIdx += count8 * 8;
+		memcpy(elem + type.memIdx, elem8, count8 * 8 * sizeof(unsigned));
+	}
+
+	borderIdx.realloc(bordersCount + 1);
+	if (bordersCount) borderIdx[0] = 0;
+	for (unsigned i = 0; i < bordersCount; ++i)
+		borderIdx[i + 1] = borderIdx[i] + borderLength[i];
+	border.realloc(borderIdx[bordersCount]);
+	for (unsigned i = 0; i < bordersCount; ++i)
+		memcpy(border + borderIdx[i], borders[i], borderLength[i] * sizeof(unsigned));
 }
