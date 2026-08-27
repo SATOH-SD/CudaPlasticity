@@ -1568,7 +1568,7 @@ void testDiskRotation() {
 
 	Mesh mesh;
 	mesh.useCuda = false;
-	mesh.genRing(0.25, 0.5, 1024, 5, 1);
+	mesh.genRing(0.25, 0.5, 256, 5, 1);
 	//mesh.genRing(0.25, 0.5, 1024, 5);
 	//mesh.genRing(0.25, 0.5, 1756, 5);
 	//mesh.genRing(0.25, 0.5, 1024, 5, 2);
@@ -1576,7 +1576,7 @@ void testDiskRotation() {
 	mesh.setPlaneWithThickness([](const double* p) { double r = sqrt(p[0] * p[0] + p[1] * p[1]); return 0.1 * exp(15 * (0.0625 - r * r)) + (r > 0.47 ? 0.1 * 30 * (r - 0.47) : 0.); });
 
 	LoadConditions load;
-	load.setRotation(3000);
+	load.setRotation(300);
 	//load.setVolumeForce([=](vec2 r) { return vec2(0 * 1e6 * r.x, -1e6 * r.y); });
 	//load.fixHorAxis(0.);
 	//load.fixVertAxis(0.);
