@@ -30,7 +30,7 @@ public:
 
 	void clear();
 
-	bool NodeAdjStruct::empty() const {
+	bool empty() const {
 		return N == 0;
 	}
 

@@ -18,6 +18,7 @@
 #include <omp.h>
 #include <fstream>
 
+
 __constant__ double GS2_d_point[2] = { -0.577'350'269'189'626, 0.577'350'269'189'626 };
 __constant__ float GS2_f_point[2] = { -0.577'350'269, 0.577'350'269 };
 //__constant__ double GS2c_coef[4] = { 1., 1. };
@@ -1699,29 +1700,6 @@ void PlasticitySolver::calcBs_() {
 }
 
 
-// TODO: for axisym append N/r line
-void PlasticitySolver::calcBs() {
-	for (unsigned t = 0; t < mesh.elemTypes; ++t) {
-		FiniteElement& type = mesh.elemInfo[t];
-		unsigned* locElem = mesh.elem + type.memIdx;
-		double* locB = B + Bidx[t];
-		double* locDetJ = detJ + detJidx[t];
-		unsigned offset = std::hardware_destructive_interference_size / sizeof(double);
-		hptr<double> allX(omp_get_max_threads() * (type.nodeCount * type.nodeDim + offset));
-#pragma omp parallel for
-		for (int e = 0; e < type.elemCount; ++e) {
-			double* x = allX + (type.nodeCount * type.nodeDim + offset) * omp_get_thread_num();
-			for (unsigned i = 0; i < type.nodeCount; ++i)
-				memcpy(x + i * mesh.dim, mesh.node + locElem[e * type.nodeCount + i] * mesh.dim, mesh.dim * sizeof(double));
-			for (unsigned p = 0; p < type.intPointsCount; ++p) {
-				unsigned locIdx = e * type.intPointsCount + p;
-				type.calcB(locB + Bsize[t] * locIdx, locDetJ[locIdx], x, type.intPoints + p * type.elemDim);
-			}
-		}
-	}
-}
-
-
 void PlasticitySolver::calcBsCuda() {
 	//std::cout << "lol B\n";
 	const int locBS = 512;
@@ -1788,31 +1766,6 @@ void PlasticitySolver::calcThickness_() {
 		std::cout << h[i] << " ";
 	}
 	std::cout << "\n";*/
-}
-
-
-void PlasticitySolver::calcThickness() {
-	for (unsigned t = 0; t < mesh.elemTypes; ++t) {
-		const FiniteElement& type = mesh.elemInfo[t];
-		double* locHsj = hsj + hsjIdx[t];
-		unsigned offset = std::hardware_destructive_interference_size / sizeof(double);
-		hptr<double> allN((type.nodeCount + offset) * omp_get_max_threads());
-#pragma omp parallel for
-		for (omp_for_t i = 0; i < type.elemCount; ++i) {
-			double* curHsj = locHsj + i * type.intPointsCount;
-			double* curData = type.data + i * type.nodeCount;
-
-			for (unsigned p = 0; p < type.intPointsCount; ++p) {
-				double* N = allN + (type.nodeCount + offset) * omp_get_thread_num();
-				
-				type.calcN(N, type.intPoints + p * type.elemDim);
-				double h = N[0] * curData[0];
-				for (unsigned j = 1; j < type.nodeCount; ++j)
-					h += N[j] * curData[j];
-				curHsj[p] = h;
-			}
-		}
-	}
 }
 
 

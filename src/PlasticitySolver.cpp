@@ -11,12 +11,68 @@
 #include <fstream>
 
 
+#include <new>
+
+#ifdef __cpp_lib_hardware_interference_size
+using std::hardware_destructive_interference_size;
+#else
+constexpr size_t hardware_destructive_interference_size = 64;
+#endif
+
 
 #if _OPENMP >= 200805
 typedef unsigned omp_for_t;
 #else
 typedef int omp_for_t;
 #endif
+
+
+// TODO: for axisym append N/r line
+void PlasticitySolver::calcBs() {
+	for (unsigned t = 0; t < mesh.elemTypes; ++t) {
+		FiniteElement& type = mesh.elemInfo[t];
+		unsigned* locElem = mesh.elem + type.memIdx;
+		double* locB = B + Bidx[t];
+		double* locDetJ = detJ + detJidx[t];
+		unsigned offset = hardware_destructive_interference_size / sizeof(double);
+		hptr<double> allX(omp_get_max_threads() * (type.nodeCount * type.nodeDim + offset));
+#pragma omp parallel for
+		for (int e = 0; e < type.elemCount; ++e) {
+			double* x = allX + (type.nodeCount * type.nodeDim + offset) * omp_get_thread_num();
+			for (unsigned i = 0; i < type.nodeCount; ++i)
+				memcpy(x + i * mesh.dim, mesh.node + locElem[e * type.nodeCount + i] * mesh.dim, mesh.dim * sizeof(double));
+			for (unsigned p = 0; p < type.intPointsCount; ++p) {
+				unsigned locIdx = e * type.intPointsCount + p;
+				type.calcB(locB + Bsize[t] * locIdx, locDetJ[locIdx], x, type.intPoints + p * type.elemDim);
+			}
+		}
+	}
+}
+
+
+void PlasticitySolver::calcThickness() {
+	for (unsigned t = 0; t < mesh.elemTypes; ++t) {
+		const FiniteElement& type = mesh.elemInfo[t];
+		double* locHsj = hsj + hsjIdx[t];
+		unsigned offset = std::hardware_destructive_interference_size / sizeof(double);
+		hptr<double> allN((type.nodeCount + offset) * omp_get_max_threads());
+#pragma omp parallel for
+		for (omp_for_t i = 0; i < type.elemCount; ++i) {
+			double* curHsj = locHsj + i * type.intPointsCount;
+			double* curData = type.data + i * type.nodeCount;
+
+			for (unsigned p = 0; p < type.intPointsCount; ++p) {
+				double* N = allN + (type.nodeCount + offset) * omp_get_thread_num();
+
+				type.calcN(N, type.intPoints + p * type.elemDim);
+				double h = N[0] * curData[0];
+				for (unsigned j = 1; j < type.nodeCount; ++j)
+					h += N[j] * curData[j];
+				curHsj[p] = h;
+			}
+		}
+	}
+}
 
 
 static void formK_planeStress_sym(double* Ke, unsigned nodeCount, const double* C_, const double* B, const double* detJ, const double* intCoefs, const double* h, unsigned intPointsCount) {
@@ -117,7 +173,7 @@ static void assemble_planeStress(unsigned elemType, CSR& K, \
 
 	//std::cout << "assemble plane stress\n";
 
-	unsigned offset = std::hardware_destructive_interference_size / sizeof(double);
+	unsigned offset = hardware_destructive_interference_size / sizeof(double);
 
 	unsigned size = nodeCount * 2;
 	hptr<double> Ke(((1 + size) * size / 2 + offset) * omp_get_max_threads());
@@ -172,7 +228,6 @@ static void assemble_planeStress(unsigned elemType, CSR& K, \
 
 
 void PlasticitySolver::assemble(CSR& K) {
-	//std::cout << "AVENGERS ASSEMBLE!\n";
 	K.data.setZero(K.dataSize());
 	for (unsigned t = 0; t < mesh.elemTypes; ++t) {
 		const FiniteElement& type = mesh.elemInfo[t];
