@@ -53,24 +53,30 @@ void PlasticitySolver::calcBs() {
 void PlasticitySolver::calcThickness() {
 	for (unsigned t = 0; t < mesh.elemTypes; ++t) {
 		const FiniteElement& type = mesh.elemInfo[t];
-		double* locHsj = hsj + hsjIdx[t];
-		unsigned offset = std::hardware_destructive_interference_size / sizeof(double);
-		hptr<double> allN((type.nodeCount + offset) * omp_get_max_threads());
-#pragma omp parallel for
-		for (omp_for_t i = 0; i < type.elemCount; ++i) {
-			double* curHsj = locHsj + i * type.intPointsCount;
-			double* curData = type.data + i * type.nodeCount;
+		switch (type.geomType) {
+		case GeomType::planeStress: {
+				double* locHsj = hsj + hsjIdx[t];
+				unsigned offset = std::hardware_destructive_interference_size / sizeof(double);
+				hptr<double> allN((type.nodeCount + offset) * omp_get_max_threads());
+	#pragma omp parallel for
+				for (omp_for_t i = 0; i < type.elemCount; ++i) {
+					double* curHsj = locHsj + i * type.intPointsCount;
+					double* curData = type.data + i * type.nodeCount;
 
-			for (unsigned p = 0; p < type.intPointsCount; ++p) {
-				double* N = allN + (type.nodeCount + offset) * omp_get_thread_num();
+					for (unsigned p = 0; p < type.intPointsCount; ++p) {
+						double* N = allN + (type.nodeCount + offset) * omp_get_thread_num();
 
-				type.calcN(N, type.intPoints + p * type.elemDim);
-				double h = N[0] * curData[0];
-				for (unsigned j = 1; j < type.nodeCount; ++j)
-					h += N[j] * curData[j];
-				curHsj[p] = h;
+						type.calcN(N, type.intPoints + p * type.elemDim);
+						double h = N[0] * curData[0];
+						for (unsigned j = 1; j < type.nodeCount; ++j)
+							h += N[j] * curData[j];
+						curHsj[p] = h;
+					}
+				}
 			}
+			break;
 		}
+		
 	}
 }
 
@@ -82,10 +88,6 @@ static void formK_planeStress_sym(double* Ke, unsigned nodeCount, const double* 
 		double CC[3][3];
 		for (unsigned i = 0; i < 9; ++i)
 			CC[0][i] = C_[i] * coef;
-
-		/*for (unsigned i = 0; i < 9; ++i)
-			printf("%e ", B[i]);
-		printf("\n");*/
 
 		for (unsigned i = 0; i < nodeCount; ++i) {
 			unsigned i2 = i * 2;
@@ -144,7 +146,7 @@ static void formK_planeStrain_sym(double* Ke, unsigned nodeCount, const double* 
 }
 
 
-static void formC_plainStressIsotropic(double* C, double E, double nu) {
+static void formC_planeStressIsotropic(double* C, double E, double nu) {
 	//Плоское напряжённое состояние
 	double coef = E / (1. - nu * nu);
 	C[0] = C[4] = coef;
@@ -154,7 +156,7 @@ static void formC_plainStressIsotropic(double* C, double E, double nu) {
 }
 
 
-static void formC_plainStrainIsotropic(double* C, double E, double nu) {
+static void formC_planeStrainIsotropic(double* C, double E, double nu) {
 	//Плоское деформированное состояние
 	double coef = E * (1. - nu) / ((1. + nu) * (1 - 2. * nu));
 	C[0] = C[4] = 1. * coef;
@@ -184,7 +186,7 @@ static void assemble_planeStress(unsigned elemType, CSR& K, \
 
 //#pragma omp parallel for
 //	for (omp_for_t e = 0; e < colorMapIdx[colorCount]; ++e) {
-//		formC_plainStressIsotropic(C + e * 9, E[e], nu[e]);
+//		formC_planeStressIsotropic(C + e * 9, E[e], nu[e]);
 //		double* locKe = Ke + ((1 + size) * size / 2 + offset) * omp_get_thread_num();
 //		//Ke.setZero((1 + size) * size / 2);
 //		memset(locKe, 0, ((1 + size) * size / 2 + offset) * sizeof(double));
@@ -210,15 +212,45 @@ static void assemble_planeStress(unsigned elemType, CSR& K, \
 #pragma omp parallel for
 		for (omp_for_t i = colorMapIdx[c]; i < colorMapIdx[c + 1]; ++i) {
 			unsigned e = colorMap[i];
-			formC_plainStressIsotropic(C + e * 9, E[e], nu[e]);
+			formC_planeStressIsotropic(C + e * 9, E[e], nu[e]);
 			double* locKe = Ke + ((1 + size) * size / 2 + offset) * omp_get_thread_num();
-			//Ke.setZero((1 + size) * size / 2);
 			memset(locKe, 0, ((1 + size) * size / 2 + offset) * sizeof(double));
 			formK_planeStress_sym(locKe, nodeCount, C + e * 9,
 				B + e * 2 * nodeCount * intPointsCount,
 				detJ + e * intPointsCount,
 				intCoefs,
 				h + e * intPointsCount,
+				intPointsCount
+			);
+			K.insertKeSym(elemType, e, locKe, elem + nodeCount * e, nodeCount, 2);
+		}
+	}
+}
+
+
+// sym Ke
+static void assemble_planeStrain(unsigned elemType, CSR& K, \
+	unsigned* colorMap, unsigned* colorMapIdx, unsigned colorCount, \
+	double* B, double* detJ, double* C, double* E, double* nu, \
+	unsigned* elem, unsigned nodeCount,
+	unsigned intPointsCount, double* intCoefs) {
+	
+	unsigned offset = hardware_destructive_interference_size / sizeof(double);
+
+	unsigned size = nodeCount * 2;
+	hptr<double> Ke(((1 + size) * size / 2 + offset) * omp_get_max_threads());
+
+	for (unsigned c = 0; c < colorCount; ++c) {
+#pragma omp parallel for
+		for (omp_for_t i = colorMapIdx[c]; i < colorMapIdx[c + 1]; ++i) {
+			unsigned e = colorMap[i];
+			formC_planeStrainIsotropic(C + e * 9, E[e], nu[e]);
+			double* locKe = Ke + ((1 + size) * size / 2 + offset) * omp_get_thread_num();
+			memset(locKe, 0, ((1 + size) * size / 2 + offset) * sizeof(double));
+			formK_planeStrain_sym(locKe, nodeCount, C + e * 9,
+				B + e * 2 * nodeCount * intPointsCount,
+				detJ + e * intPointsCount,
+				intCoefs,
 				intPointsCount
 			);
 			K.insertKeSym(elemType, e, locKe, elem + nodeCount * e, nodeCount, 2);
@@ -248,7 +280,18 @@ void PlasticitySolver::assemble(CSR& K) {
 			);
 			break;
 		case GeomType::planeStrain:
-
+			assemble_planeStrain(t, K,
+				mesh.colorMap.colorMap + type.poolIdx,
+				mesh.colorMap.colorMapIdx + t * (mesh.colorMap.colorCount + 1),
+				mesh.colorMap.colorCount,
+				B + Bidx[t],
+				detJ + detJidx[t],
+				(double*)C_,  // + offset
+				E_c, nu_c,
+				mesh.elem + type.memIdx,
+				type.nodeCount,
+				type.intPointsCount, type.intCoefs
+			);
 			break;
 		}
 	}
@@ -256,7 +299,7 @@ void PlasticitySolver::assemble(CSR& K) {
 
 
 double PlasticitySolver::solveCPU() {
-	std::cout << "Solving..." << (iterOutput ? "\n" : "") << std::endl;
+	std::cout << "Solving on CPU..." << (iterOutput ? "\n" : "") << std::endl;
 	//std::cout << "K size: " << stripK.size() << "\n";
 
 	double solvingTime = -omp_get_wtime();
@@ -280,7 +323,7 @@ double PlasticitySolver::solveCPU() {
 		uv.data(), kinMask, preconditioning, true, false, 2, lines, lineRows, lineCount);
 	//cjs.setLinesDim(2);
 
-	size_t iterNum = 0;
+	unsigned iterNum = 0;
 	double relErr = 0.;
 	do {
 		assemble(K);
@@ -308,6 +351,82 @@ double PlasticitySolver::solveCPU() {
 	h = nullptr;
 
 	return solvingTime;
+}
+
+
+void PlasticitySolver::updateParameters() {
+	auto sqr = [](double x) { return x * x; };
+
+	for (unsigned t = 0; t < mesh.elemTypes; ++t) {
+		const FiniteElement& type = mesh.elemInfo[t];
+		unsigned* locElem = mesh.elem + type.memIdx;
+		double* locB = B + Bidx[t];
+#pragma omp parallel for
+		for (omp_for_t e = 0; e < type.elemCount; ++e) {
+			unsigned ge = e + type.poolIdx;
+			unsigned* curElem = locElem + e * type.nodeCount;
+			double u[20], v[20];
+			for (unsigned i = 0; i < type.nodeCount; ++i) {
+				u[i] = uv[2 * curElem[i]];
+				v[i] = uv[2 * curElem[i] + 1];
+			}
+
+			exx[ge] = 0.;
+			eyy[ge] = 0.;
+			gamma[ge] = 0.;
+			for (unsigned p = 0; p < type.intPointsCount; ++p) {
+				double exxLoc = 0., eyyLoc = 0., gammaLoc = 0.;
+				double* curB = locB + (e * type.intPointsCount + p) * Bsize[t];
+				for (unsigned k = 0; k < type.nodeCount; ++k) {
+					exxLoc += u[k] * curB[k];
+					eyyLoc += v[k] * curB[type.nodeCount + k];
+					gammaLoc += u[k] * curB[type.nodeCount + k] + v[k] * curB[k];
+				}
+				double coef = type.intCoefs[p];
+				exx[ge] += exxLoc * coef;
+				eyy[ge] += eyyLoc * coef;
+				gamma[ge] += gammaLoc * coef;
+			}
+			exx[ge] *= 0.25;
+			eyy[ge] *= 0.25;
+			gamma[ge] *= 0.25;
+		}
+	}
+
+#pragma omp parallel for
+	for (int e = 0; e < mesh.elemCount(); ++e) {
+
+		sxx[e] = C_[e](0, 0) * exx[e] + C_[e](0, 1) * eyy[e];
+		syy[e] = C_[e](0, 1) * exx[e] + C_[e](1, 1) * eyy[e];
+		tau[e] = C_[e](2, 2) * gamma[e];
+
+		intensityS[e] = sqrt(0.5 * (sqr(sxx[e]) + sqr(syy[e]) + sqr(sxx[e] - syy[e]) + 6. * sqr(tau[e])));
+
+		intensityE[e] = intensityS[e] / E_c[e];
+		tableS[e] = m.f(intensityE[e]);
+		psi[e] = m.E * intensityE[e] / tableS[e];
+		E_c[e] = m.E / psi[e];
+		nu_c[e] = 0.5 * (1. - (1. - 2. * m.nu) / psi[e]);
+	}
+}
+
+
+void PlasticitySolver::calcPlastDeform() {
+	auto sqr = [](double x) { return x * x; };
+	double G = m.E * 0.5 / (1. + m.nu);
+#pragma omp parallel for
+	for (int i = 0; i < mesh.elemCount(); ++i) {
+		exx_p[i] = (1. / E_c[i] - 1. / m.E) * sxx[i];
+		eyy_p[i] = (1. / E_c[i] - 1. / m.E) * syy[i];
+		double G_c = E_c[i] * 0.5 / (1. + nu_c[i]);
+		gamma_p[i] = (1. / G_c - 1. / G) * tau[i];
+		// скорее всего неправильно
+		//intE_p[i] = sqrt(2.) / 3. * sqrt(sqr(exx_p[i] - eyy_p[i]) + 6. * sqr(gamma_p[i]));
+		
+		intE_p[i] = sqrt(2.) / 3. * sqrt(sqr(exx_p[i] - eyy_p[i]) + 1.5 * sqr(gamma_p[i]));
+
+		psi[i] = m.E / E_c[i];
+	}
 }
 
 
@@ -340,7 +459,7 @@ void PlasticitySolver::initConditions(double* uvw, bool* mask, double* rhs, unsi
 				for (unsigned p = 0; p < 2; ++p) {
 					double xi = GS2_point[p];
 					double N[3] = { 0.5 * xi * (xi - 1.), (1. - xi) * (1. + xi), 0.5 * xi * (xi + 1.) };
-					// detJ = sqrt(det(J^T J)) ???
+					// detJ = sqrt(det(J^T J)) ???	
 					double Jx = (-0.5 + xi) * node1.x - 2. * xi * node2.x + (0.5 + xi) * node3.x;
 					double Jy = (-0.5 + xi) * node1.y - 2. * xi * node2.y + (0.5 + xi) * node3.y;
 					double detJ = sqrt(Jx * Jx + Jy * Jy);

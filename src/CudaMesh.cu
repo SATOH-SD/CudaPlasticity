@@ -28,24 +28,24 @@ void CudaMesh::fromMesh(const Mesh& mesh) {
 	for (unsigned i = 0; i < elemTypes; ++i)
 		elemInfo[i] = CudaFiniteElement(mesh.elemInfo[i]);
 
-	CudaFiniteElement& lastType = elemInfo[elemTypes - 1];
+	const FiniteElement& lastType = mesh.elemInfo[elemTypes - 1];
 	unsigned elemMem = lastType.memIdx + lastType.elemCount * lastType.nodeCount;
 	elem.realloc(elemMem);
 	hostToDevice(elem, mesh.elem, elemMem);
 }
 
 
-void CudaMesh::addFloat() {
-	for (unsigned i = 0; i < elemTypes; ++i)
-		elemInfo[i].addFloat();
-	const unsigned BS = 1024;
-	unsigned nodeMem = nodeCount * dim;
-	cudaStream_t stream;
-	cudaStreamCreate(&stream);
-	doubleToFloat<<<(nodeCount + BS - 1) / BS, BS>>>(node_f, node, nodeMem);
-	cudaStreamSynchronize(stream);
-	cudaStreamDestroy(stream);
-}
+//void CudaMesh::addFloat() {
+//	for (unsigned i = 0; i < elemTypes; ++i)
+//		elemInfo[i].addFloat();
+//	const unsigned BS = 1024;
+//	unsigned nodeMem = nodeCount * dim;
+//	cudaStream_t stream;
+//	cudaStreamCreate(&stream);
+//	doubleToFloat<<<(nodeCount + BS - 1) / BS, BS>>>(node_f, node, nodeMem);
+//	cudaStreamSynchronize(stream);
+//	cudaStreamDestroy(stream);
+//}
 
 
 void CudaMesh::addFloat(const Mesh& mesh) {
@@ -53,11 +53,12 @@ void CudaMesh::addFloat(const Mesh& mesh) {
 		elemInfo[i].addFloat(mesh.elemInfo[i]);
 	const unsigned BS = 1024;
 	unsigned nodeMem = nodeCount * dim;
-	cudaStream_t stream;
-	cudaStreamCreate(&stream);
-	doubleToFloat<<<(nodeCount + BS - 1) / BS, BS>>>(node_f, node, nodeMem);
-	cudaStreamSynchronize(stream);
-	cudaStreamDestroy(stream);
+	//cudaStream_t stream;
+	//cudaStreamCreate(&stream);
+	//node_f.realloc(nodeMem);
+	//doubleToFloat<<<(nodeCount + BS - 1) / BS, BS, 0, stream>>>(node_f, node, nodeMem);
+	//cudaStreamSynchronize(stream);
+	//cudaStreamDestroy(stream);
 }
 
 

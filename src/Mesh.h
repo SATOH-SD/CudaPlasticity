@@ -231,7 +231,9 @@ public:
 	}
 
 	int elemCount() const {
-		return elemPos[2];
+		//return elemPos[2];
+		const FiniteElement& lastType = elemInfo[elemTypes - 1];
+		return lastType.poolIdx + lastType.elemCount;
 	}
 
 	void printAnalysis();

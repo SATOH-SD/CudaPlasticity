@@ -340,13 +340,18 @@ public:
 
 
 	~CudaJCGV() {
-		cudaGraphExecDestroy(execGraph);
-		cudaGraphDestroy(mainGraph);
-		cudaGraphDestroy(bodyGraph);
-		if (renormGraph)
+		if (execGraph)
+			cudaGraphExecDestroy(execGraph);
+		execGraph = {};
+		//cudaGraphDestroy(bodyGraph);
+		if (mainGraph)
+			cudaGraphDestroy(mainGraph);
+		mainGraph = {};
+		//if (renormGraph) \
 			cudaGraphDestroy(renormGraph);
-		renormGraph = {};
-		cudaStreamDestroy(stream);
+		if (stream)
+			cudaStreamDestroy(stream);
+		stream = {};
 	}
 
 

@@ -1065,6 +1065,7 @@ void Mesh::setGeomType(GeomType geomType) {
 	for (unsigned t = 0; t < elemTypes; ++t) {
 		setGeomForElem(geomType, t);
 	}
+	fillBorderH(); // TEMP
 }
 
 
@@ -1075,6 +1076,7 @@ void Mesh::setGeomType(GeomType geomType, unsigned blockId) {
 			setGeomForElem(geomType, t);
 		}
 	}
+	fillBorderH(); // TEMP
 }
 
 
@@ -1876,4 +1878,6 @@ void Mesh::translateFromLegacy() {
 	border.realloc(borderIdx[bordersCount]);
 	for (unsigned i = 0; i < bordersCount; ++i)
 		memcpy(border + borderIdx[i], borders[i], borderLength[i] * sizeof(unsigned));
+	colorMap.clear();
+	nodeAdjStruct.clear();
 }

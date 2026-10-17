@@ -182,7 +182,7 @@ public:
 	}
 
 	void swap(dptr<T>& ptr) {
-		std::swap(dptr<T>::ptr, ptr);
+		std::swap(dptr<T>::ptr, ptr.ptr);
 	}
 
 	void free() {

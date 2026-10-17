@@ -813,10 +813,13 @@ __global__ void loopCondition_f(cudaGraphConditionalHandle handle, float* rho, f
 	//printf("d %d: eps = %e, rho = %e\n", *iterations, *eps, *rho);
 	cudaGraphSetConditional(handle, *rho > *eps && *iterations < N);
 	++(*iterations);
+	//printf("%d ", *iterations);
 }
 
 __global__ void loopCondition_d(cudaGraphConditionalHandle handle, double* rho, double* eps, unsigned* iterations, unsigned N) {
 	//printf("d %d: eps = %e, rho = %e\n", *iterations, *eps, *rho);
 	cudaGraphSetConditional(handle, *rho > *eps && *iterations < N);
 	++(*iterations);
+	//printf("%e ", *rho);
+	//printf("%d ", *iterations);
 }

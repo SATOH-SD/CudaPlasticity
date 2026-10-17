@@ -266,7 +266,7 @@ void meshTransferTest() {
 void plasticityTest() {
 
 	Mesh mesh;
-	mesh.useCuda = false;
+	//mesh.useCuda = false;
 	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 8, 6, 1, 1);
 	mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 48, 32, 1, 1);
 	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 8 * 48, 8 * 32, 1, 0);
@@ -291,9 +291,9 @@ void plasticityTest() {
 		std::cout << "\n";
 	}*/
 
-	//ColorMap colorMap(mesh.nodeCount, mesh.elemTypes, mesh.elemInfo, mesh.elem);
-	//mesh.checkColorMap();
-	//mesh.saveAsVtu("../data/TestMesh.vtu");
+	/*ColorMap colorMap(mesh.nodeCount, mesh.elemTypes, mesh.elemInfo, mesh.elem);
+	mesh.checkColorMap();
+	mesh.saveAsVtu("../data/TestMesh.vtu");*/
 
 	/*mesh.checkNodeAdjStruct();
 	mesh.nodeAdjStruct.print();*/
@@ -324,17 +324,20 @@ void plasticityTest() {
 	m.nu = nu_304L;//0.3;
 
 	PlasticitySolver ps(m, mesh, lc);
-	//ps.setPlainCondition(strain);
-	//ps.floatBoost = true;
+	//ps.setPlaneCondition(strain);
+	ps.floatBoost = true;
 	//ps.iterOutput = false;
 	//ps.solve();
 	//ps.floatBoost = false;
 	//ps.preconditioning = false;
+	 
 	ps.solve();
+	//ps.solveCUDA();
 	//ps.solveLinear();
+
 	//ps.polarCoord = true;
 	//ps.saveAsVtk("../data/holePlatePlast.vtk");
-	//ps.saveAsVtu("../data/holePlatePlast.vtu");
+	ps.saveAsVtu("../data/holePlatePlast.vtu");
 	//std::cout << "saved\n";
 	//std::cin.get();
 }
@@ -982,18 +985,20 @@ void miniSpeedTest() {
 
 	//const std::string title = "CPU plasticity test (1st order, preconditioned, vectorized)";
 	//const std::string title = "RotorCG test";
-	const std::string title = "Block 512, x1.5F vectorization, SD";
+	//const std::string title = "Block 512, x1.5F vectorization, SD";
+	const std::string title = "GPU Multicolor (1st order, preconditioned, SD)";
 
 	Mesh mesh;
 	//mesh.useCuda = false;
 
 	std::cout << "\n" << title << "\n\n";
 	for (int i = 0; i < tests; ++i) {
-	//for (int i = tests - 1; i >= 0; --i) {
+	//for (int i = tests - 3; i >= 0; --i) {
 		//std::cout << "\n\nChilling...";
 		//std::this_thread::sleep_for(std::chrono::milliseconds(1000 * (i + 1)));
 		std::cout << "\n\n" << title << " " << base[0] * scales[i] << "x" << base[1] * scales[i] << "\n";
 		mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 1, 0);
+		mesh.setPlaneWithThickness(1.);
 		PlasticitySolver ps(m, mesh, lc);
 		ps.floatBoost = true;
 		ps.preconditioning = true;
@@ -1001,6 +1006,7 @@ void miniSpeedTest() {
 		case 0: case 1: case 2: case 3: case 4: ps.iterOutput = false; break;
 		default: ps.iterOutput = true; break;
 		}
+		ps.iterOutput = true;
 		//time[i] = ps.solveLinear();
 		time[i] = ps.solve();
 		std::cout << std::flush;
@@ -1772,6 +1778,34 @@ void lockTest() {
 }
 
 
+void allSidePressureTest() {
+	Mesh mesh;
+	//mesh.useCuda = false;
+	mesh.genRectangle(-1, 1, -1, 1, 200, 200, 1);
+	//mesh.setGeomType(GeomType::planeStrain);
+	mesh.setPlaneWithThickness(1.);
+
+	double P = 200;
+	LoadConditions load;
+	load.setForce(0, vec2(-P, 0));
+	load.setForce(1, vec2(0, -P));
+	load.setForce(2, vec2(P, 0));
+	load.setForce(3, vec2(0, P));
+	load.fixVertAxis(0.);
+	load.fixHorAxis(0.);
+
+	Material m;
+	m.setLinearPlast(1000, 10000, 100);
+	m.nu = 0.3;
+	//m.h = 1.;
+
+	PlasticitySolver solver(m, mesh, load);
+	solver.solve();
+	//solver.saveAsVtu("../data/allSide.vtu");
+	//solver.saveAsVtu("D:/Work/Calcs/allSide.vtu");
+}
+
+
 int main() { //выбор запускаемого теста
 
 	//testRotorCG();
@@ -1829,5 +1863,7 @@ int main() { //выбор запускаемого теста
 	//diskSectorTest();
 
 	//lockTest();
+
+	//allSidePressureTest();
 
 }

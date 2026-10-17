@@ -19,6 +19,7 @@
 //#include "RotorCG.h" // TEMP
 
 class CSR;
+class CudaCSR;
 
 //Плоское состояние (напряжённое, деформированное)
 enum class planeCond { stress, strain };
@@ -33,7 +34,7 @@ class PlasticitySolver {
 private:
 
 	CudaChecker* cudaCkeck = nullptr;
-	bool cudaCheckOwns = false;
+	bool ownCudaCheck = false;
 
 	Material m;
 	Material* dev_m;  //указатель на данные материала на видеокарте
@@ -57,6 +58,9 @@ private:
 
 	double* dd_uv = nullptr;
 	float* df_uv = nullptr;
+
+	dptr<float> df_u;
+	dptr<double> dd_u;
 
 	//Механические параметры для процессора
 	double* exx, * eyy, * gamma, * intensityE;
@@ -100,15 +104,24 @@ private:
 	dptr<double> dd_lines;
 	dptr<unsigned> dev_lineRows;
 
-	hptr<double> B;
+	hptr<double> B;       // Матрицы градиентов
 	hptr<unsigned> Bidx;
 	hptr<unsigned> Bsize;
 
-	hptr<double> detJ;
+	dptr<double> dd_B;
+	dptr<float> df_B;
+
+	hptr<double> detJ;     // Якобианы конечных элементов
 	hptr<unsigned> detJidx;
 
-	hptr<double> hsj;
+	dptr<double> dd_detJ;
+	dptr<float> df_detJ;
+
+	hptr<double> hsj;      // Толщины, площади, моменты инерции
 	hptr<unsigned> hsjIdx;
+
+	dptr<double> dd_hsj;
+	dptr<float> df_hsj;
 
 	StaticMatrix<3, 3, double>* C_ = nullptr;
 	StaticMatrix<2, 3, double>* B3 = nullptr;
@@ -143,49 +156,69 @@ private:
 	void initPlastParams();
 	void initPlastParamsFloat();
 	
+	// LEGACY
 	void initConditions_(double* uvw, bool* mask, double* rhs, unsigned& lineCount, hptr<double>& lines, hptr<unsigned>& lineRows);
 	
 	void initConditions(double* uvw, bool* mask, double* rhs, unsigned& lineCount, hptr<double>& lines, hptr<unsigned>& lineRows);
 
+	// LEGACY
 	template<typename fp>
 	void initConditions_(CudaSparseSLAE<fp>& K, fp* uv);
 
-	void calcBs_();
+	void cudaInitConditions(double* uvw, bool* mask, double* rhs, unsigned& lineCount, dptr<double>& lines, dptr<unsigned>& lineRows);
+
+	void calcBs_();  // LEGACY
 
 	void calcBs();
-
-	void calcThickness_();
+	
+	void calcThickness_(); // LEGACY
 
 	void calcThickness();
 
+	void copyThickness_(); // LEGACY
+
 	void copyThickness();
+
+	void calcBsCuda_(); // LEGACY
 
 	void calcBsCuda();
 
+	void copyBs_();  // LEGACY
+
 	void copyBs();
 
-	void copyConditions(float* rp_f, double* rp, int memLen);
+	void copyConditions_(float* R_f, double* R, unsigned memLen); // LEGACY
 
-	void copyFloatToDouble(int memLen);
+	void copyConditions(float* R_f, double* R, unsigned memLen);
 
-	void distribKe4(StripSLAE& K, const SymMatrix<8, double>& Ke, int e) const;
-	void distribKe8(StripSLAE& K, const SymMatrix<16, double>& Ke, int e) const;
+	void copyFloatToDouble_(int memLen); // LEGACY
 
-	void fillGlobalStiffness(StripSLAE& K, SparseSLAE& spK);
+	void copyFloatToDouble(unsigned memLen);
 
-	//void fillGlobalStiffness(SparseSLAE& K);
+	void distribKe4(StripSLAE& K, const SymMatrix<8, double>& Ke, int e) const; // LEGACY
+	void distribKe8(StripSLAE& K, const SymMatrix<16, double>& Ke, int e) const; // LEGACY
 
-	void fillGlobalStiffness(CudaSLAE<double>& K, CudaSparseSLAE<double>& spK);
+	void fillGlobalStiffness(StripSLAE& K, SparseSLAE& spK); // LEGACY
 
-	void fillGlobalStiffness(CudaSLAE<float>& K, CudaSparseSLAE<float>& spK);
+	void fillGlobalStiffness(CudaSLAE<double>& K, CudaSparseSLAE<double>& spK); // LEGACY
+
+	void fillGlobalStiffness(CudaSLAE<float>& K, CudaSparseSLAE<float>& spK); // LEGACY
 
 	void assemble(CSR& K);
+
+	void assemble(CudaCSR& K, unsigned* dev_colorMap);
+
+	void assembleFloat(CudaCSR& K, unsigned* dev_colorMap);
 	
-	void updateParameters_(int iterNum = 0);
+	void updateParameters_(int iterNum = 0); // LEGACY
 
 	void updateParameters();
 
+	void updateParamDouble_();  // LEGACY
+
 	void updateParamDouble();
+
+	void updateParamFloat_();  // LEGACY
 
 	void updateParamFloat();
 
@@ -329,6 +362,8 @@ public:
 			case GeomType::planeStress:
 				hsjIdx[t + 1] = hsjIdx[t] + type.elemCount * type.intPointsCount;
 				break;
+			default:
+				hsjIdx[t + 1] = hsjIdx[t];
 			}
 		}
 		B.malloc(Bidx[mesh.elemTypes]);
@@ -345,6 +380,12 @@ public:
 		setPlaneCondition(pc);
 
 		if (mesh.useCuda) {
+			cudaMesh.fromMesh(mesh);
+
+			dd_hsj.realloc(hsjIdx[mesh.elemTypes]);
+			dd_B.realloc(Bidx[mesh.elemTypes]);
+			dd_detJ.realloc(detJidx[mesh.elemTypes]);
+
 			cudaMalloc((void**)&dev_m, sizeof(Material));
 			cudaMemcpy(dev_m, &m, sizeof(Material), cudaMemcpyHostToDevice);
 
@@ -455,11 +496,15 @@ public:
 			return solveLinearCPU();
 	}
 
-	double solveCPU_();
+	double solveCPU_(); // LEGACY
 
 	double solveCPU();
 
+	double solveCUDA_(); // LEGACY
+
 	double solveCUDA();
+
+	double solveCUDA_FD_(); // LEGACY
 
 	double solveCUDA_FD();
 

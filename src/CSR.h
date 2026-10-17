@@ -27,6 +27,8 @@ public:
 
 	CSR(const NodeAdjStruct& nodeAdjStruct, unsigned dim);
 
+	// TODO: constructor for FEs with const dim
+
 	CSR(const NodeAdjStruct& nodeAdjStruct, unsigned elemTypes, const FiniteElement* fe, const unsigned* elem);
 
 	void insertKe(unsigned elemType, unsigned e, double* Ke, unsigned* elem, unsigned nodeCount, unsigned nodeDim);

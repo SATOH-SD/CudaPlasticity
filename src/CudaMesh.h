@@ -32,15 +32,15 @@ public:
 
 	CudaMesh();
 
+	CudaMesh(CudaMesh&& mesh);
+
 	CudaMesh(const Mesh& mesh);
 
 	~CudaMesh();
 
 	void fromMesh(const Mesh& mesh);
 
-	void toMesh(Mesh& mesh) const;
-
-	void addFloat();
+	//void addFloat();
 
 	void addFloat(const Mesh& mesh);
 

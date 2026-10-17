@@ -223,6 +223,8 @@ static void B_quad2(double* B, double& detJ, const double* x, const double* xi) 
 }
 
 
+FiniteElement::FiniteElement() = default;
+
 
 FiniteElement::FiniteElement(ElemType elemType, unsigned gaussPoints) {
 	setType(elemType, gaussPoints);

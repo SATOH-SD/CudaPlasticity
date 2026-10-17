@@ -48,6 +48,13 @@ cudaError_t cudaAddMemsetNode(void* devPtr, int value, size_t count, \
 //}
 
 
+__device__ inline unsigned getSmId(void) {
+	unsigned smid;
+	asm("mov.u32 %0, %smid;" : "=r"(smid));
+	return smid;
+}
+
+
 __device__ inline float atomicAdd_arch52(float* address, float val) {
 	return atomicAdd(address, val);
 }

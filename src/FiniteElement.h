@@ -53,7 +53,7 @@ public:
 	// указатель на доп данные (толщина, коэффициенты и т.п.)
 	hptr<double> data;
 
-	FiniteElement() = default;
+	FiniteElement();
 
 	FiniteElement(ElemType elemType, unsigned gaussPoints);
 
@@ -72,24 +72,6 @@ class CudaFiniteElement {
 
 public:
 
-	unsigned blockId = 0;
-
-	unsigned nodeCount = 0;
-
-	unsigned memIdx = 0;
-
-	unsigned poolIdx = 0;
-
-	unsigned elemCount = 0;
-
-	ElemType elemType = ElemType::none;
-
-	GeomType geomType = GeomType::none;
-
-	unsigned elemDim = 0;
-
-	unsigned nodeDim = 2;
-
 	// число точек интегрирования
 	unsigned intPointsCount = 0;
 
@@ -105,8 +87,8 @@ public:
 	void (*calcN_f)(double* N, const double* xi) = nullptr;
 
 	// указатель на вычисление градиентов и якобиана
-	void (*calcB)(double* B, double& detJ, const double* x, const double* xi) = nullptr;
-	void (*calcB_f)(double* B, double& detJ, const double* x, const double* xi) = nullptr;
+	void (*calcB)(double* B, double* detJ, const double* x, const double* xi) = nullptr;
+	void (*calcB_f)(double* B, double* detJ, const double* x, const double* xi) = nullptr;
 
 	// указатель на доп данные (толщина, коэффициенты и т.п.)
 	dptr<double> data;
@@ -116,10 +98,12 @@ public:
 
 	CudaFiniteElement(const FiniteElement& fe);
 
-	void addFloat();
-
 	void addFloat(const FiniteElement& fe);
 
 	void print();
+
+private:
+
+	void setType(ElemType elemType);
 
 };
