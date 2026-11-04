@@ -267,8 +267,8 @@ void plasticityTest() {
 
 	Mesh mesh;
 	//mesh.useCuda = false;
-	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 8, 6, 1, 1);
-	mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 48, 32, 1, 1);
+	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 8, 6, 1, 2);
+	mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 4 * 48, 4 * 32, 1, 2);
 	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 8 * 48, 8 * 32, 1, 0);
 	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 96 * 3, 64 * 3, 1);
 	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 144, 96, 2);
@@ -281,6 +281,7 @@ void plasticityTest() {
 	//mesh.saveAsVtk("../data/renumMesh.vtk");
 
 	mesh.setPlaneWithThickness(1.);
+	//mesh.setGeomType(GeomType::planeStrain);
 	//mesh.setPlaneWithThickness([](const double* x) { return 1. - 0.05 * sqrt(x[0] * x[0] + x[1] * x[1]); });
 
 	//mesh.printBorder();
@@ -986,10 +987,10 @@ void miniSpeedTest() {
 	//const std::string title = "CPU plasticity test (1st order, preconditioned, vectorized)";
 	//const std::string title = "RotorCG test";
 	//const std::string title = "Block 512, x1.5F vectorization, SD";
-	const std::string title = "GPU Multicolor (1st order, preconditioned, SD)";
+	const std::string title = "CPU Multicolor (1st order, preconditioned)";
 
 	Mesh mesh;
-	//mesh.useCuda = false;
+	mesh.useCuda = false;
 
 	std::cout << "\n" << title << "\n\n";
 	for (int i = 0; i < tests; ++i) {
@@ -1006,7 +1007,6 @@ void miniSpeedTest() {
 		case 0: case 1: case 2: case 3: case 4: ps.iterOutput = false; break;
 		default: ps.iterOutput = true; break;
 		}
-		ps.iterOutput = true;
 		//time[i] = ps.solveLinear();
 		time[i] = ps.solve();
 		std::cout << std::flush;
@@ -1781,7 +1781,7 @@ void lockTest() {
 void allSidePressureTest() {
 	Mesh mesh;
 	//mesh.useCuda = false;
-	mesh.genRectangle(-1, 1, -1, 1, 200, 200, 1);
+	mesh.genRectangle(-1, 1, -1, 1, 500, 500, 1);
 	//mesh.setGeomType(GeomType::planeStrain);
 	mesh.setPlaneWithThickness(1.);
 
@@ -1795,14 +1795,14 @@ void allSidePressureTest() {
 	load.fixHorAxis(0.);
 
 	Material m;
-	m.setLinearPlast(1000, 10000, 100);
+	m.setLinearPlast(1000, 100, 100);
 	m.nu = 0.3;
 	//m.h = 1.;
 
 	PlasticitySolver solver(m, mesh, load);
+	//solver.floatBoost = true;
 	solver.solve();
-	//solver.saveAsVtu("../data/allSide.vtu");
-	//solver.saveAsVtu("D:/Work/Calcs/allSide.vtu");
+	solver.saveAsVtu("../data/allSide.vtu");
 }
 
 
@@ -1824,7 +1824,7 @@ int main() { //выбор запускаемого теста
 
 	//energyConvTest();
 
-	plasticityTest();
+	//plasticityTest();
 
 	//kirschConvTest();
 
@@ -1864,6 +1864,6 @@ int main() { //выбор запускаемого теста
 
 	//lockTest();
 
-	//allSidePressureTest();
+	allSidePressureTest();
 
 }

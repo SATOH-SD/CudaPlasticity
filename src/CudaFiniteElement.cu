@@ -13,7 +13,7 @@ static __device__ void N_quad1(fp* N, const fp* xi) {
 template<typename fp>
 static __device__ void (*ptr_N_quad1)(fp* N, const fp* xi) = N_quad1;
 
-
+// TODO: check if detJ could be reference
 template<typename fp>
 static __device__ void B_quad1(fp* B, fp* detJ, const fp* x, const fp* xi) {
 	fp x1 = x[0], y1 = x[1],

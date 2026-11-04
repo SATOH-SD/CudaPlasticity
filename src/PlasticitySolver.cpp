@@ -37,7 +37,7 @@ void PlasticitySolver::calcBs() {
 		unsigned offset = hardware_destructive_interference_size / sizeof(double);
 		hptr<double> allX(omp_get_max_threads() * (type.nodeCount * type.nodeDim + offset));
 #pragma omp parallel for
-		for (int e = 0; e < type.elemCount; ++e) {
+		for (omp_for_t e = 0; e < type.elemCount; ++e) {
 			double* x = allX + (type.nodeCount * type.nodeDim + offset) * omp_get_thread_num();
 			for (unsigned i = 0; i < type.nodeCount; ++i)
 				memcpy(x + i * mesh.dim, mesh.node + locElem[e * type.nodeCount + i] * mesh.dim, mesh.dim * sizeof(double));
@@ -354,7 +354,7 @@ double PlasticitySolver::solveCPU() {
 }
 
 
-void PlasticitySolver::updateParameters() {
+void PlasticitySolver::updateParameters_() {
 	auto sqr = [](double x) { return x * x; };
 
 	for (unsigned t = 0; t < mesh.elemTypes; ++t) {
@@ -411,7 +411,100 @@ void PlasticitySolver::updateParameters() {
 }
 
 
-void PlasticitySolver::calcPlastDeform() {
+void PlasticitySolver::updateParameters() {
+	auto sqr = [](double x) { return x * x; };
+
+	for (unsigned t = 0; t < mesh.elemTypes; ++t) {
+		const FiniteElement& type = mesh.elemInfo[t];
+		unsigned* locElem = mesh.elem + type.memIdx;
+		double* locB = B + Bidx[t];
+#pragma omp parallel for
+		for (omp_for_t e = 0; e < type.elemCount; ++e) {
+			unsigned* curElem = locElem + e * type.nodeCount;
+			double* curEps = eps + seIdx[t] + 4 * e;
+			double u[8], v[8];
+			for (unsigned i = 0; i < type.nodeCount; ++i) {
+				u[i] = uv[2 * curElem[i]];
+				v[i] = uv[2 * curElem[i] + 1];
+			}
+			memset(curEps, 0, sizeof(double) * 4);
+			for (unsigned p = 0; p < type.intPointsCount; ++p) {
+				double exxLoc = 0., eyyLoc = 0., gammaLoc = 0.;
+				double* curB = locB + (e * type.intPointsCount + p) * Bsize[t];
+				for (unsigned k = 0; k < type.nodeCount; ++k) {
+					exxLoc += u[k] * curB[k];
+					eyyLoc += v[k] * curB[type.nodeCount + k];
+					gammaLoc += u[k] * curB[type.nodeCount + k] + v[k] * curB[k];
+				}
+				double coef = type.intCoefs[p];
+				curEps[0] += exxLoc * coef;
+				curEps[1] += eyyLoc * coef;
+				curEps[3] += gammaLoc * coef;
+			}
+			for (unsigned i = 0; i < 4; ++i)
+				curEps[i] *= 0.25;
+		}
+	}
+
+	for (unsigned t = 0; t < mesh.elemTypes; ++t) {
+		const FiniteElement& type = mesh.elemInfo[t];
+		double* locEps = eps + seIdx[t];
+		double* locSigma = sigma + seIdx[t];
+		switch (type.geomType) {
+		case GeomType::planeStress:
+#pragma omp parallel for
+			for (omp_for_t e = 0; e < type.elemCount; ++e) {
+				double* curEps = locEps + 4 * e;
+				double* curSigma = locSigma + 4 * e;
+				unsigned ge = e + type.poolIdx;
+
+				curSigma[0] = C_[ge](0, 0) * curEps[0] + C_[ge](0, 1) * curEps[1]; // xx
+				curSigma[1] = C_[ge](0, 1) * curEps[0] + C_[ge](1, 1) * curEps[1]; // yy
+				curSigma[2] = 0.;                                                  // zz
+				curSigma[3] = C_[ge](2, 2) * curEps[3];                            // xy
+				curEps[2] = -nu_c[ge] / E_c[ge] * (curSigma[0] + curSigma[1]);  // zz
+
+				intensityS[ge] = sqrt(0.5 * (sqr(curSigma[0] - curSigma[2]) + \
+					sqr(curSigma[1] - curSigma[2]) + sqr(curSigma[0] - curSigma[1]) + \
+					6. * sqr(curSigma[3])));
+
+				intensityE[ge] = intensityS[ge] / E_c[ge];
+				tableS[ge] = m.f(intensityE[ge]);
+				psi[ge] = m.E * intensityE[ge] / tableS[ge];
+				E_c[ge] = m.E / psi[ge];
+				nu_c[ge] = 0.5 * (1. - (1. - 2. * m.nu) / psi[ge]);
+			}
+			break;
+		case GeomType::planeStrain:
+#pragma omp parallel for
+			for (omp_for_t e = 0; e < type.elemCount; ++e) {
+				double* curEps = locEps + 4 * e;
+				double* curSigma = locSigma + 4 * e;
+				unsigned ge = e + type.poolIdx;
+
+				curSigma[0] = C_[ge](0, 0) * curEps[0] + C_[ge](0, 1) * curEps[1]; // xx
+				curSigma[1] = C_[ge](0, 1) * curEps[0] + C_[ge](1, 1) * curEps[1]; // yy
+				curSigma[2] = nu_c[ge] * (curSigma[0] + curSigma[1]);              // zz                                             // zz
+				curSigma[3] = C_[ge](2, 2) * curEps[3];                            // xy
+				curEps[2] = 0.;  // zz
+
+				intensityS[ge] = sqrt(0.5 * (sqr(curSigma[0] - curSigma[2]) + \
+					sqr(curSigma[1] - curSigma[2]) + sqr(curSigma[0] - curSigma[1]) + \
+					6. * sqr(curSigma[3])));
+
+				intensityE[ge] = intensityS[ge] / E_c[ge];
+				tableS[ge] = m.f(intensityE[ge]);
+				psi[ge] = m.E * intensityE[ge] / tableS[ge];
+				E_c[ge] = m.E / psi[ge];
+				nu_c[ge] = 0.5 * (1. - (1. - 2. * m.nu) / psi[ge]);
+			}
+			break;
+		}
+	}
+}
+
+
+void PlasticitySolver::calcPlastDeform_() {
 	auto sqr = [](double x) { return x * x; };
 	double G = m.E * 0.5 / (1. + m.nu);
 #pragma omp parallel for
@@ -426,6 +519,40 @@ void PlasticitySolver::calcPlastDeform() {
 		intE_p[i] = sqrt(2.) / 3. * sqrt(sqr(exx_p[i] - eyy_p[i]) + 1.5 * sqr(gamma_p[i]));
 
 		psi[i] = m.E / E_c[i];
+	}
+}
+
+void PlasticitySolver::calcPlastDeform() {
+	auto sqr = [](double x) { return x * x; };
+	double G = m.E * 0.5 / (1. + m.nu);
+
+	for (unsigned t = 0; t < mesh.elemTypes; ++t) {
+		const FiniteElement& type = mesh.elemInfo[t];
+		double* locEps_p = eps_p + seIdx[t];
+		double* locSigma = sigma + seIdx[t];
+		switch (type.geomType) {
+		case GeomType::planeStress:
+		case GeomType::planeStrain:
+		case GeomType::axiSym:
+#pragma omp parallel for
+			for (omp_for_t e = 0; e < type.elemCount; ++e) {
+				double* curEps_p = locEps_p + 4 * e;
+				double* curSigma = locSigma + 4 * e;
+				unsigned ge = e + type.poolIdx;
+
+				for (unsigned i = 0; i < 3; ++i)
+					curEps_p[i] = (1. / E_c[ge] - 1. / m.E) * curSigma[i];
+				double G_c = E_c[ge] * 0.5 / (1. + nu_c[ge]);
+				curEps_p[3] = (1. / G_c - 1. / G) * curSigma[3];
+
+				intE_p[ge] = sqrt(2. * (sqr(curEps_p[0] - curEps_p[1]) + \
+					sqr(curEps_p[0] - curEps_p[2]) + sqr(curEps_p[1] - curEps_p[2]) + \
+					1.5 * sqr(curEps_p[3]))) / 3.;
+
+				psi[ge] = m.E / E_c[ge];
+			}
+			break;
+		}
 	}
 }
 

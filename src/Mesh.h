@@ -61,6 +61,10 @@ public:
 
 	hptr<unsigned> elem;
 
+	hptr<FiniteElement> borderElemInfo;
+
+	hptr<unsigned> borderElem;
+
 	NodeAdjStruct nodeAdjStruct;
 
 	ColorMap colorMap;

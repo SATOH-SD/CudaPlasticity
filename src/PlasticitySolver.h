@@ -16,6 +16,8 @@
 #include "CudaChecker.h"
 #include "CudaMesh.h"
 
+#include <cuda_runtime.h>
+
 //#include "RotorCG.h" // TEMP
 
 class CSR;
@@ -56,8 +58,8 @@ private:
 
 	std::vector<double> uv;  //TODO: перевести всё на hptr и dptr
 
-	double* dd_uv = nullptr;
-	float* df_uv = nullptr;
+	double* dd_uv = nullptr;  // LEGACY
+	float* df_uv = nullptr;  // LEGACY
 
 	dptr<float> df_u;
 	dptr<double> dd_u;
@@ -67,6 +69,20 @@ private:
 	double* exx_p, * eyy_p, * gamma_p, * intE_p;
 	double* sxx, * syy, * tau, * intensityS, * tableS;
 	double* psi, * E_c, * nu_c;
+
+	hptr<double> eps;
+	hptr<double> eps_p;
+	hptr<double> sigma;
+	hptr<unsigned> seIdx;
+	hptr<unsigned> seSize;
+
+	dptr<double> dd_sigma;
+	dptr<float> df_sigma;
+
+	dptr<double> dd_eps;
+	dptr<float> df_eps;
+
+	dptr<double> dd_eps_p;
 
 	//Механические параметры для видеокарты во float
 	float* df_exx, * df_eyy, * df_gamma, * df_intensityE;
@@ -81,8 +97,8 @@ private:
 
 	double* h = nullptr;
 
-	float* df_h = nullptr;
-	double* dd_h = nullptr;
+	float* df_h = nullptr;  // LEGACY
+	double* dd_h = nullptr;  // LEGACY
 
 	float* df_exit = nullptr;  //Значение для критерия останова на видеокарте
 	double* dd_exit = nullptr;
@@ -123,35 +139,46 @@ private:
 	dptr<double> dd_hsj;
 	dptr<float> df_hsj;
 
-	StaticMatrix<3, 3, double>* C_ = nullptr;
-	StaticMatrix<2, 3, double>* B3 = nullptr;
-	StaticMatrix<2, 4, double>* B4 = nullptr;
-	StaticMatrix<2, 8, double>* B8 = nullptr;
+	dptr<double> KeBuffer;
+	dptr<double> KeBuffer_f;
+	unsigned KeBufferSizePerSm = 0;
 
-	double* detJ4 = nullptr;
-	double* detJ8 = nullptr;
+	cudaStream_t stream;
+	cudaGraph_t assembleGraph;
+	cudaGraphExec_t assembleGraphExec;
+
+	StaticMatrix<3, 3, double>* C_ = nullptr;
+	StaticMatrix<2, 3, double>* B3 = nullptr;  // LEGACY
+	StaticMatrix<2, 4, double>* B4 = nullptr;  // LEGACY
+	StaticMatrix<2, 8, double>* B8 = nullptr;  // LEGACY
+
+	double* detJ4 = nullptr;  // LEGACY
+	double* detJ8 = nullptr;  // LEGACY
 
 	StaticMatrix<3, 3, double>* dd_C = nullptr;
-	StaticMatrix<2, 3, double>* dd_B3 = nullptr;
-	StaticMatrix<2, 4, double>* dd_B4 = nullptr;
-	StaticMatrix<2, 8, double>* dd_B8 = nullptr;
+	StaticMatrix<2, 3, double>* dd_B3 = nullptr;  // LEGACY
+	StaticMatrix<2, 4, double>* dd_B4 = nullptr;  // LEGACY
+	StaticMatrix<2, 8, double>* dd_B8 = nullptr;  // LEGACY
 
-	double* dd_detJ4 = nullptr;
-	double* dd_detJ8 = nullptr;
+	double* dd_detJ4 = nullptr;  // LEGACY
+	double* dd_detJ8 = nullptr;  // LEGACY
 
-	SymMatrix<8, double>* dd_Ke4 = nullptr;
-	SymMatrix<16, double>* dd_Ke8 = nullptr;
+	SymMatrix<8, double>* dd_Ke4 = nullptr;  // LEGACY
+	SymMatrix<16, double>* dd_Ke8 = nullptr;  // LEGACY
 
 	StaticMatrix<3, 3, float>* df_C = nullptr;
-	StaticMatrix<2, 3, float>* df_B3 = nullptr;
-	StaticMatrix<2, 4, float>* df_B4 = nullptr;
-	StaticMatrix<2, 8, float>* df_B8 = nullptr;
+	StaticMatrix<2, 3, float>* df_B3 = nullptr;  // LEGACY
+	StaticMatrix<2, 4, float>* df_B4 = nullptr;  // LEGACY
+	StaticMatrix<2, 8, float>* df_B8 = nullptr;  // LEGACY
 
-	float* df_detJ4 = nullptr;
-	float* df_detJ8 = nullptr;
+	float* df_detJ4 = nullptr;  // LEGACY
+	float* df_detJ8 = nullptr;  // LEGACY
 
-	SymMatrix<8, float>* df_Ke4 = nullptr;
-	SymMatrix<16, float>* df_Ke8 = nullptr;
+	SymMatrix<8, float>* df_Ke4 = nullptr;  // LEGACY
+	SymMatrix<16, float>* df_Ke8 = nullptr;  // LEGACY
+
+	void mallocCpuSolvingData();
+	void mallocCudaSolvingData();
 
 	void initPlastParams();
 	void initPlastParamsFloat();
@@ -209,20 +236,34 @@ private:
 	void assemble(CudaCSR& K, unsigned* dev_colorMap);
 
 	void assembleFloat(CudaCSR& K, unsigned* dev_colorMap);
+
+	void createAssembleGraph();
+
+	// run assemble with graph
 	
-	void updateParameters_(int iterNum = 0); // LEGACY
+	void updateParameters__(int iterNum = 0); // LEGACY
+
+	void updateParameters_();  // LEGACY
 
 	void updateParameters();
 
-	void updateParamDouble_();  // LEGACY
+	void updateParamDouble__();  // LEGACY
+
+	void updateParamDouble_();
 
 	void updateParamDouble();
 
-	void updateParamFloat_();  // LEGACY
+	void updateParamFloat__();  // LEGACY
+
+	void updateParamFloat_();
 
 	void updateParamFloat();
 
+	void calcPlastDeform_();
+
 	void calcPlastDeform();
+
+	void calcPlastDeformCuda_();
 
 	void calcPlastDeformCuda();
 
@@ -350,14 +391,19 @@ public:
 		Bsize.malloc(mesh.elemTypes);
 		detJidx.malloc(mesh.elemTypes + 1);
 		hsjIdx.malloc(mesh.elemTypes + 1);
+		seIdx.malloc(mesh.elemTypes + 1);
+		seSize.malloc(mesh.elemTypes);
 		Bidx[0] = 0;
 		detJidx[0] = 0;
 		hsjIdx[0] = 0;
+		seIdx[0] = 0;
 		for (unsigned t = 0; t < mesh.elemTypes; ++t) {
 			const FiniteElement& type = mesh.elemInfo[t];
 			Bsize[t] = type.nodeCount * type.elemDim;
+			// TODO: add line to Bsize in case axisym
 			detJidx[t + 1] = detJidx[t] + type.intPointsCount * type.elemCount;
 			Bidx[t + 1] = Bidx[t] + type.intPointsCount * type.elemCount * Bsize[t];
+			// choose hsj
 			switch (type.geomType) {
 			case GeomType::planeStress:
 				hsjIdx[t + 1] = hsjIdx[t] + type.elemCount * type.intPointsCount;
@@ -365,10 +411,22 @@ public:
 			default:
 				hsjIdx[t + 1] = hsjIdx[t];
 			}
+			// choose se
+			switch (type.geomType) {
+			case GeomType::planeStress:
+			case GeomType::planeStrain:
+			case GeomType::axiSym:
+				seSize[t] = 4;
+				break;
+			}
+			seIdx[t + 1] = seIdx[t] + type.elemCount * seSize[t];
 		}
-		B.malloc(Bidx[mesh.elemTypes]);
+		B.malloc(Bidx[mesh.elemTypes]);  // TODO: malloc in solve
 		detJ.malloc(detJidx[mesh.elemTypes]);
 		hsj.malloc(hsjIdx[mesh.elemTypes]);
+		sigma.malloc(seIdx[mesh.elemTypes]);
+		eps.malloc(seIdx[mesh.elemTypes]);
+		eps_p.malloc(seIdx[mesh.elemTypes]);
 
 		size_t memLen = ((mesh.nodeCount * 2) + BS - 1) / BS * BS;
 		uv.resize(memLen);
@@ -380,11 +438,20 @@ public:
 		setPlaneCondition(pc);
 
 		if (mesh.useCuda) {
+			cudaStreamCreate(&stream);
+
 			cudaMesh.fromMesh(mesh);
 
 			dd_hsj.realloc(hsjIdx[mesh.elemTypes]);
-			dd_B.realloc(Bidx[mesh.elemTypes]);
+			dd_B.realloc(Bidx[mesh.elemTypes]);       // TODO: malloc in solve
 			dd_detJ.realloc(detJidx[mesh.elemTypes]);
+
+			dd_sigma.malloc(seIdx[mesh.elemTypes]);
+			dd_eps.malloc(seIdx[mesh.elemTypes]);
+			dd_eps_p.malloc(seIdx[mesh.elemTypes]);
+
+			df_sigma.malloc(seIdx[mesh.elemTypes]);
+			df_eps.malloc(seIdx[mesh.elemTypes]);
 
 			cudaMalloc((void**)&dev_m, sizeof(Material));
 			cudaMemcpy(dev_m, &m, sizeof(Material), cudaMemcpyHostToDevice);
@@ -456,7 +523,12 @@ public:
 		delete[] C_;
 		delete[] B3; delete[] B4; delete[] B8;
 		delete[] detJ4; delete detJ8;
+
 		if (mesh.useCuda) {
+			cudaStreamDestroy(stream);
+			cudaGraphExecDestroy(assembleGraphExec);
+			cudaGraphDestroy(assembleGraph);
+
 			cudaFree(dd_exx); cudaFree(dd_eyy); cudaFree(dd_gamma); cudaFree(dd_intensityE);
 			cudaFree(dd_exx_p); cudaFree(dd_eyy_p); cudaFree(dd_gamma_p); cudaFree(dd_intE_p);
 			cudaFree(dd_sxx); cudaFree(dd_syy); cudaFree(dd_tau); cudaFree(dd_intensityS); cudaFree(dd_tableS);
