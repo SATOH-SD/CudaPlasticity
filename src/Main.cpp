@@ -268,11 +268,12 @@ void plasticityTest() {
 	Mesh mesh;
 	//mesh.useCuda = false;
 	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 8, 6, 1, 2);
-	mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 4 * 48, 4 * 32, 1, 2);
+	mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 1 * 48, 1 * 32, 1, 2);
 	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 8 * 48, 8 * 32, 1, 0);
 	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 96 * 3, 64 * 3, 1);
 	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 144, 96, 2);
-	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 6 * 45, 4 * 45, 1, 0);
+	//unsigned scale = 64;
+	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 6 * scale, 4 * scale, 2, 2);
 	//mesh.genRectangle(-2, 2, -2, 2, 2, 2);
 	//mesh.printAnalysis();
 	//mesh.renumByDirection();
@@ -326,7 +327,7 @@ void plasticityTest() {
 
 	PlasticitySolver ps(m, mesh, lc);
 	//ps.setPlaneCondition(strain);
-	ps.floatBoost = true;
+	//ps.floatBoost = true;
 	//ps.iterOutput = false;
 	//ps.solve();
 	//ps.floatBoost = false;
@@ -527,14 +528,16 @@ void speedTest2() {
 	m.nu = nu_304L;
 
 	const int base[2] = { 6, 4 };
-	const int scales[9] = { 4, 6, 8, 11, 16, 23, 32, 45, 64 };
-	int elemCount[9] = { 1280, 2880, 5120, 9460, 20480, 41860, 81920, 161100, 327680 };
+	const int scales[13] = { 4, 6, 8, 11, 16, 23, 32, 45, 64, 91, 128, 181, 256 };
+	//int elemCount[9] = { 1280, 2880, 5120, 9460, 20480, 41860, 81920, 161100, 327680 };
+	int elemCount[13] = { 1840, 4080, 7200, 13420, 28480, 58420, 112640, 223200, 450560, 910000, 1799680, 3598280, 7198720 };
+	int nodeCount[13] = { 1920, 4200, 7360, 13640, 28800, 58880, 113280, 224100, 451840, 911820, 1802240, 3601900, 7203840 };
 	//1280, 2880, 5120, 9460, 20480, 41860, 161100, 327680
 
 	//const int elastCpu1 = 8, elastGpu1 = 9, elastCpu2 = 6, elastGpu2 = 6, \
 		plastCpu1 = 8, plastGpu1 = 9, plastCpu2 = 6, plastGpu2 = 6, \
 		plastGpuF1 = 9, plastGpuF2 = 6; //default
-	const int elastCpu1 = 9, elastGpu1 = 7, elastCpu2 = 6, elastGpu2 = 5, \
+	//const int elastCpu1 = 9, elastGpu1 = 7, elastCpu2 = 6, elastGpu2 = 5, \
 		plastCpu1 = 9, plastGpu1 = 7, plastCpu2 = 6, plastGpu2 = 5, \
 		plastGpuF1 = 7, plastGpuF2 = 5; //4 GB
 	//const int elastCpu1 = 8, elastGpu1 = 8, elastCpu2 = 6, elastGpu2 = 6, \
@@ -543,6 +546,12 @@ void speedTest2() {
 	//const int elastCpu1 = 9, elastGpu1 = 9, elastCpu2 = 6, elastGpu2 = 6, \
 		plastCpu1 = 9, plastGpu1 = 9, plastCpu2 = 6, plastGpu2 = 6, \
 		plastGpuF1 = 9, plastGpuF2 = 6; //12 GB
+	
+	//PRE
+	const int elastCpu1 = 11, elastGpu1 = 11, elastCpu2 = 9, elastGpu2 = 9, \
+		plastCpu1 = 9, plastGpu1 = 9, plastCpu2 = 7, plastGpu2 = 7, \
+		plastGpuF1 = 9, plastGpuF2 = 7;
+
 	double elastCpu1_time[elastCpu1] = {},
 		elastGpu1_time[elastGpu1] = {},
 		elastCpu2_time[elastCpu2] = {},
@@ -576,7 +585,8 @@ void speedTest2() {
 			std::cout << "\n\nChilling...";
 			//std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 			std::cout << "\rGPU elasticity test " << base[0] * scales[i] << "x" << base[1] * scales[i] << " (1st order)\n";
-			mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 1, 0);
+			mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 1, 2);
+			mesh.setPlaneWithThickness(1.);
 			PlasticitySolver ps(m, mesh, lc);
 			elastGpu1_time[i] = ps.solveLinear();
 			std::cout << std::flush;
@@ -586,7 +596,8 @@ void speedTest2() {
 			std::cout << "\n\nChilling...";
 			//std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 			std::cout << "\rGPU elasticity test " << base[0] * scales[i] << "x" << base[1] * scales[i] << " (2nd order)\n";
-			mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 2, 0);
+			mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 2, 2);
+			mesh.setPlaneWithThickness(1.);
 			PlasticitySolver ps(m, mesh, lce);
 			elastGpu2_time[i] = ps.solveLinear();
 			std::cout << std::flush;
@@ -596,11 +607,12 @@ void speedTest2() {
 			std::cout << "\n\nChilling...";
 			//std::this_thread::sleep_for(std::chrono::milliseconds(1000 * (i + 1)));
 			std::cout << "\rGPU plasticity float boost test " << base[0] * scales[i] << "x" << base[1] * scales[i] << " (1st order)\n";
-			mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 1, 0);
+			mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 1, 2);
+			mesh.setPlaneWithThickness(1.);
 			PlasticitySolver ps(m, mesh, lc);
 			ps.floatBoost = true;
 			switch (i) {
-			case 0: case 1: case 2: case 3: case 4: ps.iterOutput = false; break;
+			case 0: case 1: case 2: case 3: case 4: case 5: ps.iterOutput = false; break;
 			default: ps.iterOutput = true; break;
 			}
 			plastGpuF1_time[i] = ps.solve();
@@ -611,11 +623,12 @@ void speedTest2() {
 			std::cout << "\n\nChilling...";
 			//std::this_thread::sleep_for(std::chrono::milliseconds(1000 * (i + 1)));
 			std::cout << "\rGPU plasticity float boost test " << base[0] * scales[i] << "x" << base[1] * scales[i] << " (2nd order)\n";
-			mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 2, 0);
+			mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 2, 2);
+			mesh.setPlaneWithThickness(1.);
 			PlasticitySolver ps(m, mesh, lc);
 			ps.floatBoost = true;
 			switch (i) {
-			case 0: case 1: case 2: case 3: ps.iterOutput = false; break;
+			case 0: case 1: case 2: case 3: case 4: ps.iterOutput = false; break;
 			default: ps.iterOutput = true; break;
 			}
 			plastGpuF2_time[i] = ps.solve();
@@ -629,10 +642,11 @@ void speedTest2() {
 			std::cout << "\n\nChilling...";
 			//std::this_thread::sleep_for(std::chrono::milliseconds(1000 * (i + 1)));
 			std::cout << "\rGPU plasticity test " << base[0] * scales[i] << "x" << base[1] * scales[i] << " (1st order)\n";
-			mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 1, 0);
+			mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 1, 2);
+			mesh.setPlaneWithThickness(1.);
 			PlasticitySolver ps(m, mesh, lc);
 			switch (i) {
-			case 0: case 1: case 2: case 3: case 4: ps.iterOutput = false; break;
+			case 0: case 1: case 2: case 3: case 4: case 5: ps.iterOutput = false; break;
 			default: ps.iterOutput = true; break;
 			}
 			plastGpu1_time[i] = ps.solve();
@@ -643,10 +657,11 @@ void speedTest2() {
 			std::cout << "\n\nChilling...";
 			//std::this_thread::sleep_for(std::chrono::milliseconds(1000 * (i + 1)));
 			std::cout << "\rGPU plasticity test " << base[0] * scales[i] << "x" << base[1] * scales[i] << " (2nd order)\n";
-			mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 2, 0);
+			mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 2, 2);
+			mesh.setPlaneWithThickness(1.);
 			PlasticitySolver ps(m, mesh, lc);
 			switch (i) {
-			case 0: case 1: case 2: ps.iterOutput = false; break;
+			case 0: case 1: case 2: case 3: case 4: ps.iterOutput = false; break;
 			default: ps.iterOutput = true; break;
 			}
 			plastGpu2_time[i] = ps.solve();
@@ -662,7 +677,8 @@ void speedTest2() {
 		std::cout << "\n\nChilling...";
 		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 		std::cout << "\rCPU elasticity test " << base[0] * scales[i] << "x" << base[1] * scales[i] << " (1st order)\n";
-		mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 1, 0);
+		mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 1, 2);
+		mesh.setPlaneWithThickness(1.);
 		PlasticitySolver ps(m, mesh, lce);
 		elastCpu1_time[i] = ps.solveLinear();
 		std::cout << std::flush;
@@ -672,7 +688,8 @@ void speedTest2() {
 		std::cout << "\n\nChilling...";
 		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 		std::cout << "\rCPU elasticity test " << base[0] * scales[i] << "x" << base[1] * scales[i] << " (2nd order)\n";
-		mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 2, 0);
+		mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 2, 2);
+		mesh.setPlaneWithThickness(1.);
 		PlasticitySolver ps(m, mesh, lce);
 		elastCpu2_time[i] = ps.solveLinear();
 		std::cout << std::flush;
@@ -682,10 +699,11 @@ void speedTest2() {
 		std::cout << "\n\nChilling...";
 		std::this_thread::sleep_for(std::chrono::milliseconds(1000 * (i + 1)));
 		std::cout << "\rCPU plasticity test " << base[0] * scales[i] << "x" << base[1] * scales[i] << " (1st order)\n";
-		mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 1, 0);
+		mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 1, 2);
+		mesh.setPlaneWithThickness(1.);
 		PlasticitySolver ps(m, mesh, lc);
 		switch (i) {
-		case 0: case 1: case 2: case 3: ps.iterOutput = false; break;
+		case 0: case 1: case 2: case 3: case 4: ps.iterOutput = false; break;
 		default: ps.iterOutput = true; break;
 		}
 		plastCpu1_time[i] = ps.solve();
@@ -696,10 +714,11 @@ void speedTest2() {
 		std::cout << "\n\nChilling...";
 		std::this_thread::sleep_for(std::chrono::milliseconds(1000 * (i + 1)));
 		std::cout << "\rCPU plasticity test " << base[0] * scales[i] << "x" << base[1] * scales[i] << " (2nd order)\n";
-		mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 2, 0);
+		mesh.genRectWithHole(-3., 3., -2., 2., 0.5, base[0] * scales[i], base[1] * scales[i], 2, 2);
+		mesh.setPlaneWithThickness(1.);
 		PlasticitySolver ps(m, mesh, lc);
 		switch (i) {
-		case 0: case 1: case 2: ps.iterOutput = false; break;
+		case 0: case 1: case 2: case 3: ps.iterOutput = false; break;
 		default: ps.iterOutput = true; break;
 		}
 		plastCpu2_time[i] = ps.solve();
@@ -719,7 +738,7 @@ void speedTest2() {
 			std::cout << elemCount[i] << "          " << gpuTime[i] << "\n  ";
 	}*/
 
-	std::ofstream file("CudaPlasticitySpeedTest2.txt", std::ios_base::out);
+	std::ofstream file("CudaPlasticitySpeedTest3.txt", std::ios_base::out);
 	file << "CPU: " << getProcessorName() << "\n";
 	if (fullTest) {
 		cudaDeviceProp deviceProp;
@@ -728,35 +747,35 @@ void speedTest2() {
 			<< round((double)deviceProp.totalGlobalMem / 1'048'576.) << " MB\n";
 	}
 	file << "\nElements          ";
-	for (int i = 0; i < 9; ++i) {
+	for (int i = 0; i < 11; ++i) {
 		file.width(9); file << elemCount[i] << " ";
 	}
 	file << "\n\nCPU elast (1st)   ";
 	for (int i = 0; i < elastCpu1; ++i) {
 		file.width(9); file << elastCpu1_time[i] << " ";
 	}
-	for (int i = elastCpu1; i < 9; ++i) {
+	for (int i = elastCpu1; i < 11; ++i) {
 		file.width(9); file << "-" << " ";
 	}
 	file << "\nCPU elast (2nd)   ";
 	for (int i = 0; i < elastCpu2; ++i) {
 		file.width(9); file << elastCpu2_time[i] << " ";
 	}
-	for (int i = elastCpu2; i < 9; ++i) {
+	for (int i = elastCpu2; i < 11; ++i) {
 		file.width(9); file << "-" << " ";
 	}
 	file << "\nCPU plast (1st)   ";
 	for (int i = 0; i < plastCpu1; ++i) {
 		file.width(9); file << plastCpu1_time[i] << " ";
 	}
-	for (int i = plastCpu1; i < 9; ++i) {
+	for (int i = plastCpu1; i < 11; ++i) {
 		file.width(9); file << "-" << " ";
 	}
 	file << "\nCPU plast (2nd)   ";
 	for (int i = 0; i < plastCpu2; ++i) {
 		file.width(9); file << plastCpu2_time[i] << " ";
 	}
-	for (int i = plastCpu2; i < 9; ++i) {
+	for (int i = plastCpu2; i < 11; ++i) {
 		file.width(9); file << "-" << " ";
 	}
 
@@ -765,28 +784,28 @@ void speedTest2() {
 		for (int i = 0; i < elastGpu1; ++i) {
 			file.width(9); file << elastGpu1_time[i] << " ";
 		}
-		for (int i = elastGpu1; i < 9; ++i) {
+		for (int i = elastGpu1; i < 11; ++i) {
 			file.width(9); file << "-" << " ";
 		}
 		file << "\nGPU elast (2nd)   ";
 		for (int i = 0; i < elastGpu2; ++i) {
 			file.width(9); file << elastGpu2_time[i] << " ";
 		}
-		for (int i = elastGpu2; i < 9; ++i) {
+		for (int i = elastGpu2; i < 11; ++i) {
 			file.width(9); file << "-" << " ";
 		}
 		file << "\nGPU plast (1st)   ";
 		for (int i = 0; i < plastGpu1; ++i) {
 			file.width(9); file << plastGpu1_time[i] << " ";
 		}
-		for (int i = plastGpu1; i < 9; ++i) {
+		for (int i = plastGpu1; i < 11; ++i) {
 			file.width(9); file << "-" << " ";
 		}
 		file << "\nGPU plast (2nd)   ";
 		for (int i = 0; i < plastGpu2; ++i) {
 			file.width(9); file << plastGpu2_time[i] << " ";
 		}
-		for (int i = plastGpu2; i < 9; ++i) {
+		for (int i = plastGpu2; i < 11; ++i) {
 			file.width(9); file << "-" << " ";
 		}
 
@@ -794,14 +813,14 @@ void speedTest2() {
 		for (int i = 0; i < plastGpuF1; ++i) {
 			file.width(9); file << plastGpuF1_time[i] << " ";
 		}
-		for (int i = plastGpuF1; i < 9; ++i) {
+		for (int i = plastGpuF1; i < 11; ++i) {
 			file.width(9); file << "-" << " ";
 		}
 		file << "\nGPU boost (2nd)   ";
 		for (int i = 0; i < plastGpuF2; ++i) {
 			file.width(9); file << plastGpuF2_time[i] << " ";
 		}
-		for (int i = plastGpuF2; i < 9; ++i) {
+		for (int i = plastGpuF2; i < 11; ++i) {
 			file.width(9); file << "-" << " ";
 		}
 	}
@@ -870,35 +889,35 @@ void speedTest2() {
 			<< round((double)deviceProp.totalGlobalMem / 1'048'576.) << " MB\n";
 	}
 	std::cout << "\nElements          ";
-	for (int i = 0; i < 9; ++i) {
+	for (int i = 0; i < 11; ++i) {
 		std::cout.width(9); std::cout << elemCount[i] << " ";
 	}
 	std::cout << "\n\nCPU elast (1st)   ";
 	for (int i = 0; i < elastCpu1; ++i) {
 		std::cout.width(9); std::cout << elastCpu1_time[i] << " ";
 	}
-	for (int i = elastCpu1; i < 9; ++i) {
+	for (int i = elastCpu1; i < 11; ++i) {
 		std::cout.width(9); std::cout << "-" << " ";
 	}
 	std::cout << "\nCPU elast (2nd)   ";
 	for (int i = 0; i < elastCpu2; ++i) {
 		std::cout.width(9); std::cout << elastCpu2_time[i] << " ";
 	}
-	for (int i = elastCpu2; i < 9; ++i) {
+	for (int i = elastCpu2; i < 11; ++i) {
 		std::cout.width(9); std::cout << "-" << " ";
 	}
 	std::cout << "\nCPU plast (1st)   ";
 	for (int i = 0; i < plastCpu1; ++i) {
 		std::cout.width(9); std::cout << plastCpu1_time[i] << " ";
 	}
-	for (int i = plastCpu1; i < 9; ++i) {
+	for (int i = plastCpu1; i < 11; ++i) {
 		std::cout.width(9); std::cout << "-" << " ";
 	}
 	std::cout << "\nCPU plast (2nd)   ";
 	for (int i = 0; i < plastCpu2; ++i) {
 		std::cout.width(9); std::cout << plastCpu2_time[i] << " ";
 	}
-	for (int i = plastCpu2; i < 9; ++i) {
+	for (int i = plastCpu2; i < 11; ++i) {
 		std::cout.width(9); std::cout << "-" << " ";
 	}
 
@@ -907,28 +926,28 @@ void speedTest2() {
 		for (int i = 0; i < elastGpu1; ++i) {
 			std::cout.width(9); std::cout << elastGpu1_time[i] << " ";
 		}
-		for (int i = elastGpu1; i < 9; ++i) {
+		for (int i = elastGpu1; i < 11; ++i) {
 			std::cout.width(9); std::cout << "-" << " ";
 		}
 		std::cout << "\nGPU elast (2nd)   ";
 		for (int i = 0; i < elastGpu2; ++i) {
 			std::cout.width(9); std::cout << elastGpu2_time[i] << " ";
 		}
-		for (int i = elastGpu2; i < 9; ++i) {
+		for (int i = elastGpu2; i < 11; ++i) {
 			std::cout.width(9); std::cout << "-" << " ";
 		}
 		std::cout << "\nGPU plast (1st)   ";
 		for (int i = 0; i < plastGpu1; ++i) {
 			std::cout.width(9); std::cout << plastGpu1_time[i] << " ";
 		}
-		for (int i = plastGpu1; i < 9; ++i) {
+		for (int i = plastGpu1; i < 11; ++i) {
 			std::cout.width(9); std::cout << "-" << " ";
 		}
 		std::cout << "\nGPU plast (2nd)   ";
 		for (int i = 0; i < plastGpu2; ++i) {
 			std::cout.width(9); std::cout << plastGpu2_time[i] << " ";
 		}
-		for (int i = plastGpu2; i < 9; ++i) {
+		for (int i = plastGpu2; i < 11; ++i) {
 			std::cout.width(9); std::cout << "-" << " ";
 		}
 
@@ -936,14 +955,14 @@ void speedTest2() {
 		for (int i = 0; i < plastGpuF1; ++i) {
 			std::cout.width(9); std::cout << plastGpuF1_time[i] << " ";
 		}
-		for (int i = plastGpuF1; i < 9; ++i) {
+		for (int i = plastGpuF1; i < 11; ++i) {
 			std::cout.width(9); std::cout << "-" << " ";
 		}
 		std::cout << "\nGPU boost (2nd)   ";
 		for (int i = 0; i < plastGpuF2; ++i) {
 			std::cout.width(9); std::cout << plastGpuF2_time[i] << " ";
 		}
-		for (int i = plastGpuF2; i < 9; ++i) {
+		for (int i = plastGpuF2; i < 11; ++i) {
 			std::cout.width(9); std::cout << "-" << " ";
 		}
 	}
@@ -1824,7 +1843,7 @@ int main() { //выбор запускаемого теста
 
 	//energyConvTest();
 
-	//plasticityTest();
+	plasticityTest();
 
 	//kirschConvTest();
 
@@ -1864,6 +1883,6 @@ int main() { //выбор запускаемого теста
 
 	//lockTest();
 
-	allSidePressureTest();
+	//allSidePressureTest();
 
 }

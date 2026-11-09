@@ -158,7 +158,7 @@ CudaCSR::CudaCSR(const NodeAdjStruct& nodeAdjStruct, unsigned elemTypes, const F
 	elemInsSize.malloc(elemTypes);
 	elemIns.malloc(host_elemInsIdx[elemTypes]);
 	hostToDevice(nodeLine, host_nodeLine, nodeAdjStruct.N);
-	cudaMemset(rows + N + 1, 0, std::max(0LL, (long long)rowsMemLen - (long long)(N + 1)));
+	cudaMemset(rows + N + 1, 0, std::max(0LL, (long long)rowsMemLen - (long long)(N + 1)) * sizeof(unsigned));
 	hostToDevice(rows, host_rows, N + 1);
 	hostToDevice(cols, host_cols, host_rows[N]);
 	hostToDevice(elemInsIdx, host_elemInsIdx, elemTypes + 1);

@@ -56,7 +56,7 @@ void PlasticitySolver::calcThickness() {
 		switch (type.geomType) {
 		case GeomType::planeStress: {
 				double* locHsj = hsj + hsjIdx[t];
-				unsigned offset = std::hardware_destructive_interference_size / sizeof(double);
+				unsigned offset = hardware_destructive_interference_size / sizeof(double);
 				hptr<double> allN((type.nodeCount + offset) * omp_get_max_threads());
 	#pragma omp parallel for
 				for (omp_for_t i = 0; i < type.elemCount; ++i) {
@@ -298,9 +298,46 @@ void PlasticitySolver::assemble(CSR& K) {
 }
 
 
+double PlasticitySolver::solveLinearCPU() {
+	std::cout << "Solving on CPU..." << std::endl;
+
+	double solvingTime = -omp_get_wtime();
+
+	calcThickness();
+	calcBs();
+
+	mesh.checkNodeAdjStruct();
+	CSR K(mesh.nodeAdjStruct, mesh.elemTypes, mesh.elemInfo, mesh.elem);
+
+	mesh.checkColorMap();
+
+	uv.resize(K.N);
+	hptr<double> R(K.N);
+	initConditions(uv.data(), kinMask, R, lineCount, lines, lineRows);
+
+	JCGV cjs(K.N, K.data, K.rows, K.cols, R, \
+		uv.data(), kinMask, preconditioning, true, false, 2, lines, lineRows, lineCount);
+	//cjs.setLinesDim(2);
+
+	assemble(K);
+
+	unsigned insideIter = 0;
+	insideIter = cjs.solve(1e-7);
+
+	updateParameters();
+
+	solvingTime += omp_get_wtime();
+
+	std::cout << "Solved [" << solvingTime << " sec]\n";
+	if (!iterOutput)
+		std::cout << "SLAE iterations: " << insideIter << "\n";
+
+	return solvingTime;
+}
+
+
 double PlasticitySolver::solveCPU() {
 	std::cout << "Solving on CPU..." << (iterOutput ? "\n" : "") << std::endl;
-	//std::cout << "K size: " << stripK.size() << "\n";
 
 	double solvingTime = -omp_get_wtime();
 
@@ -346,9 +383,6 @@ double PlasticitySolver::solveCPU() {
 		<< "\nExit error: " << exitCondition() << "\n";
 
 	plastSolved = true;
-
-	delete[] h;
-	h = nullptr;
 
 	return solvingTime;
 }

@@ -144,8 +144,10 @@ private:
 	unsigned KeBufferSizePerSm = 0;
 
 	cudaStream_t stream;
-	cudaGraph_t assembleGraph;
-	cudaGraphExec_t assembleGraphExec;
+	cudaGraph_t assembleGraph = nullptr;
+	cudaGraph_t assembleGraphFloat = nullptr;
+	cudaGraphExec_t assembleGraphExec = nullptr;
+	cudaGraphExec_t assembleGraphExecFloat = nullptr;
 
 	StaticMatrix<3, 3, double>* C_ = nullptr;
 	StaticMatrix<2, 3, double>* B3 = nullptr;  // LEGACY
@@ -237,9 +239,13 @@ private:
 
 	void assembleFloat(CudaCSR& K, unsigned* dev_colorMap);
 
-	void createAssembleGraph();
+	void createAssembleGraph(CudaCSR& K, unsigned* dev_colorMap);
 
-	// run assemble with graph
+	void createAssembleGraphFloat(CudaCSR& K, unsigned* dev_colorMap);
+
+	void runAssembleGraph();
+
+	void runAssembleGraphFloat();
 	
 	void updateParameters__(int iterNum = 0); // LEGACY
 
@@ -495,21 +501,21 @@ public:
 
 			cudaMalloc((void**)&dev_kinNodes, memLen * sizeof(bool));
 
-			cudaMalloc((void**)&dd_B4, 4 * mesh.count4 * sizeof(StaticMatrix<2, 4, double>));
-			cudaMalloc((void**)&dd_detJ4, 4 * mesh.count4 * sizeof(double));
-			cudaMalloc((void**)&dd_Ke4, mesh.count4 * sizeof(SymMatrix<8, double>));
+			//cudaMalloc((void**)&dd_B4, 4 * mesh.count4 * sizeof(StaticMatrix<2, 4, double>));
+			//cudaMalloc((void**)&dd_detJ4, 4 * mesh.count4 * sizeof(double));
+			//cudaMalloc((void**)&dd_Ke4, mesh.count4 * sizeof(SymMatrix<8, double>));
 
-			cudaMalloc((void**)&df_B4, 4 * mesh.count4 * sizeof(StaticMatrix<2, 4, float>));
-			cudaMalloc((void**)&df_detJ4, 4 * mesh.count4 * sizeof(float));
-			cudaMalloc((void**)&df_Ke4, mesh.count4 * sizeof(SymMatrix<8, float>));
+			//cudaMalloc((void**)&df_B4, 4 * mesh.count4 * sizeof(StaticMatrix<2, 4, float>));
+			//cudaMalloc((void**)&df_detJ4, 4 * mesh.count4 * sizeof(float));
+			//cudaMalloc((void**)&df_Ke4, mesh.count4 * sizeof(SymMatrix<8, float>));
 
-			cudaMalloc((void**)&dd_B8, secIntPs2 * mesh.count8 * sizeof(StaticMatrix<2, 8, double>));
-			cudaMalloc((void**)&dd_detJ8, secIntPs2 * mesh.count8 * sizeof(double));
-			cudaMalloc((void**)&dd_Ke8, mesh.count8 * sizeof(SymMatrix<16, double>));
+			//cudaMalloc((void**)&dd_B8, secIntPs2 * mesh.count8 * sizeof(StaticMatrix<2, 8, double>));
+			//cudaMalloc((void**)&dd_detJ8, secIntPs2 * mesh.count8 * sizeof(double));
+			//cudaMalloc((void**)&dd_Ke8, mesh.count8 * sizeof(SymMatrix<16, double>));
 
-			cudaMalloc((void**)&df_B8, secIntPs2 * mesh.count8 * sizeof(StaticMatrix<2, 8, float>));
-			cudaMalloc((void**)&df_detJ8, secIntPs2 * mesh.count8 * sizeof(float));
-			cudaMalloc((void**)&df_Ke8, mesh.count8 * sizeof(SymMatrix<16, float>));
+			//cudaMalloc((void**)&df_B8, secIntPs2 * mesh.count8 * sizeof(StaticMatrix<2, 8, float>));
+			//cudaMalloc((void**)&df_detJ8, secIntPs2 * mesh.count8 * sizeof(float));
+			//cudaMalloc((void**)&df_Ke8, mesh.count8 * sizeof(SymMatrix<16, float>));
 		}
 	};
 
@@ -527,7 +533,9 @@ public:
 		if (mesh.useCuda) {
 			cudaStreamDestroy(stream);
 			cudaGraphExecDestroy(assembleGraphExec);
+			cudaGraphExecDestroy(assembleGraphExecFloat);
 			cudaGraphDestroy(assembleGraph);
+			cudaGraphDestroy(assembleGraphFloat);
 
 			cudaFree(dd_exx); cudaFree(dd_eyy); cudaFree(dd_gamma); cudaFree(dd_intensityE);
 			cudaFree(dd_exx_p); cudaFree(dd_eyy_p); cudaFree(dd_gamma_p); cudaFree(dd_intE_p);
@@ -556,7 +564,11 @@ public:
 		}
 	}
 
+	double solveLinearCPU_();
+
 	double solveLinearCPU();
+
+	double solveLinearCUDA_();
 
 	double solveLinearCUDA();
 

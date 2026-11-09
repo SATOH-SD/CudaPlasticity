@@ -170,7 +170,7 @@ public:
 				cudaMemset(normB, 0, sizeof(fp));
 				if constexpr (sizeof(fp) == 4) {
 					norm2_f<<<grid, block, 0, stream>>>(rhs, normB);
-					cudaStreamSynchronize(stream);
+					cudaStreamSynchronize(stream); 
 					if (condVals.getItem(0) < 1e-35f)
 						norm2_f<<<grid, block, 0, stream>>>(x, normB);
 				}
