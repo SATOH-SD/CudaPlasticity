@@ -321,16 +321,14 @@ double PlasticitySolver::solveLinearCPU() {
 
 	assemble(K);
 
-	unsigned insideIter = 0;
-	insideIter = cjs.solve(1e-7);
+	unsigned slaeIter = cjs.solve(1e-7);
 
 	updateParameters();
 
 	solvingTime += omp_get_wtime();
 
-	std::cout << "Solved [" << solvingTime << " sec]\n";
-	if (!iterOutput)
-		std::cout << "SLAE iterations: " << insideIter << "\n";
+	std::cout << "Solved [" << solvingTime << " sec]\n" \
+		<< "SLAE iterations: " << slaeIter << "\n";
 
 	return solvingTime;
 }

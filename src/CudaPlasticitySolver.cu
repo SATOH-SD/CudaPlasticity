@@ -1430,6 +1430,8 @@ double PlasticitySolver::solveLinearCUDA() {
 	unsigned memLen = (K.N + blockSize - 1) / blockSize * blockSize;
 	dd_u.realloc(memLen);
 	dptr<double> R(memLen);
+	cudaMemset(dd_u + K.N, 0, (memLen - K.N) * sizeof(double));
+	cudaMemset(R + K.N, 0, (memLen - K.N) * sizeof(double));
 
 	cudaInitConditions(dd_u, dev_kinNodes, R, lineCount, dd_lines, dev_lineRows);
 
@@ -1440,16 +1442,14 @@ double PlasticitySolver::solveLinearCUDA() {
 	//assemble(K, dev_colorMap);
 	runAssembleGraph();
 
-	unsigned slaeIter = 0;
-	slaeIter = cgSolver.solve(1e-7);
+	unsigned slaeIter = cgSolver.solve(1e-7);
 
 	updateParamDouble();
 
 	solvingTime += omp_get_wtime();
 
-	std::cout << "Solved [" << solvingTime << " sec]\n";
-	if (!iterOutput)
-		std::cout << "SLAE iterations: " << slaeIter << "\n";
+	std::cout << "Solved [" << solvingTime << " sec]\n" \
+		<< "SLAE iterations: " << slaeIter << "\n";
 
 	ramSaved = false;
 
@@ -1557,6 +1557,8 @@ double PlasticitySolver::solveCUDA() {
 	unsigned memLen = (K.N + blockSize - 1) / blockSize * blockSize;
 	dd_u.realloc(memLen);
 	dptr<double> R(memLen);
+	cudaMemset(dd_u + K.N, 0, (memLen - K.N) * sizeof(double));
+	cudaMemset(R + K.N, 0, (memLen - K.N) * sizeof(double));
 
 	cudaInitConditions(dd_u, dev_kinNodes, R, lineCount, dd_lines, dev_lineRows);
 
@@ -1933,11 +1935,16 @@ double PlasticitySolver::solveCUDA_FD() {
 	unsigned memLen = (K.N + blockSize - 1) / blockSize * blockSize;
 	df_u.realloc(memLen);
 	dd_u.realloc(memLen);
-	dd_u.setZero(memLen);
+	//dd_u.setZero(memLen);
 	dptr<float> R_f(memLen);
-	R_f.setZero(memLen);
+	//R_f.setZero(memLen);
 	dptr<double> R(memLen);  // TODO: set zero last chunk
-	R.setZero(memLen);
+	//R.setZero(memLen);
+
+	cudaMemset(dd_u + K.N, 0, (memLen - K.N) * sizeof(double));
+	cudaMemset(R + K.N, 0, (memLen - K.N) * sizeof(double));
+	cudaMemset(df_u + K.N, 0, (memLen - K.N) * sizeof(float));
+	cudaMemset(R_f + K.N, 0, (memLen - K.N) * sizeof(float));
 
 	cudaInitConditions(dd_u, dev_kinNodes, R, lineCount, dd_lines, dev_lineRows);
 	copyConditions(R_f, R, memLen);
@@ -2006,6 +2013,153 @@ double PlasticitySolver::solveCUDA_FD() {
 		<< "\nExit error: " << relErr << "\n";
 
 	ramSaved = false;
+	plastSolved = true;
+
+	return solvingTime;
+}
+
+
+double PlasticitySolver::solveLinearGpuAccelerated() {
+	std::cout << "Solving GPU accelerated..." << std::endl;
+
+	double solvingTime = -omp_get_wtime();
+
+	calcThickness();
+	calcBs();
+
+	mesh.checkNodeAdjStruct();
+	CSR K(mesh.nodeAdjStruct, mesh.elemTypes, mesh.elemInfo, mesh.elem);
+
+	mesh.checkColorMap();
+
+	uv.resize(K.N);
+	hptr<double> R(K.N);
+	initConditions(uv.data(), kinMask, R, lineCount, lines, lineRows);
+
+	unsigned blockSize = 512;
+	dptr<double> dev_K_data(K.dataSize());
+	unsigned memLen = (K.N + blockSize - 1) / blockSize * blockSize;
+	dptr<unsigned> dev_K_rows(memLen + 1);
+	cudaMemset(dev_K_rows + K.N + 1, 0, std::max(0LL, (long long)memLen + 1 - (long long)(K.N + 1)) * sizeof(unsigned));
+	dptr<unsigned> dev_K_cols(K.dataSize());
+
+	hostToDevice(dev_K_rows, K.rows, K.N + 1);
+	hostToDevice(dev_K_cols, K.cols, K.dataSize());
+
+	dptr<double> dev_R(memLen);
+	dptr<double> dev_u(memLen);
+	dptr<bool> dev_kinMask(memLen);
+	cudaMemset(dev_u + K.N, 0, (memLen - K.N) * sizeof(double));
+	cudaMemset(dev_R + K.N, 0, (memLen - K.N) * sizeof(double));
+	cudaMemset(dev_kinMask + K.N, 0, (memLen - K.N) * sizeof(bool));
+
+	cudaMemcpy(dev_u, uv.data(), K.N * sizeof(double), cudaMemcpyHostToDevice);
+	hostToDevice(dev_R, R, K.N);
+	cudaMemcpy(dev_kinMask, kinMask, K.N * sizeof(bool), cudaMemcpyHostToDevice);
+
+	dptr<double> dd_lines(2 * lineCount);
+	dptr<unsigned> dev_lineRows(lineCount);
+	hostToDevice(dd_lines, lines, lineCount * 2);
+	hostToDevice(dev_lineRows, lineRows, lineCount);
+
+	CudaJCGV<double> cgSolver(K.N, dev_K_data, dev_K_rows, dev_K_cols, dev_R, \
+		dev_u, dev_kinMask, preconditioning, true, false, 2, blockSize, \
+		dd_lines, dev_lineRows, lineCount);
+
+	assemble(K);
+	hostToDevice(dev_K_data, K.data, K.dataSize());
+
+	unsigned slaeIter = 0;
+	slaeIter = cgSolver.solve(1e-7);
+	cudaMemcpy(uv.data(), dev_u, K.N * sizeof(double), cudaMemcpyDeviceToHost);
+
+	updateParameters();
+
+	solvingTime += omp_get_wtime();
+
+	std::cout << "Solved [" << solvingTime << " sec]\n" \
+		<< "SLAE iterations: " << slaeIter << "\n";
+
+	return solvingTime;
+}
+
+
+double PlasticitySolver::solveGpuAccelerated() {
+	if (iterOutput)
+		printIter = [](size_t iterNum, size_t insideIter, double relErr) {
+		std::cout << "Iteration " << iterNum + 1 << ", inner iterations: " << insideIter << ", error: " << relErr << "\n";
+		};
+	else printIter = [](size_t, size_t, double) {};
+	std::cout << "Solving GPU accelerated..." << (iterOutput ? "\n" : "") << std::endl;
+
+	double solvingTime = -omp_get_wtime();
+
+	calcThickness();
+	calcBs();
+
+	mesh.checkNodeAdjStruct();
+	CSR K(mesh.nodeAdjStruct, mesh.elemTypes, mesh.elemInfo, mesh.elem);
+
+	mesh.checkColorMap();
+
+	uv.resize(K.N);
+	hptr<double> R(K.N);
+	initConditions(uv.data(), kinMask, R, lineCount, lines, lineRows);
+
+	unsigned blockSize = 512;
+	dptr<double> dev_K_data(K.dataSize());
+	unsigned memLen = (K.N + blockSize - 1) / blockSize * blockSize;
+	dptr<unsigned> dev_K_rows(memLen + 1);
+	cudaMemset(dev_K_rows + K.N + 1, 0, std::max(0LL, (long long)memLen + 1 - (long long)(K.N + 1)) * sizeof(unsigned));
+	dptr<unsigned> dev_K_cols(K.dataSize());
+
+	hostToDevice(dev_K_rows, K.rows, K.N + 1);
+	hostToDevice(dev_K_cols, K.cols, K.dataSize());
+
+	dptr<double> dev_R(memLen);
+	dptr<double> dev_u(memLen);
+	dptr<bool> dev_kinMask(memLen);
+	cudaMemset(dev_u + K.N, 0, (memLen - K.N) * sizeof(double));
+	cudaMemset(dev_R + K.N, 0, (memLen - K.N) * sizeof(double));
+	cudaMemset(dev_kinMask + K.N, 0, (memLen - K.N) * sizeof(bool));
+
+	cudaMemcpy(dev_u, uv.data(), K.N * sizeof(double), cudaMemcpyHostToDevice);
+	hostToDevice(dev_R, R, K.N);
+	cudaMemcpy(dev_kinMask, kinMask, K.N * sizeof(bool), cudaMemcpyHostToDevice);
+
+	dptr<double> dd_lines(2 * lineCount);
+	dptr<unsigned> dev_lineRows(lineCount);
+	hostToDevice(dd_lines, lines, lineCount * 2);
+	hostToDevice(dev_lineRows, lineRows, lineCount);
+
+	CudaJCGV<double> cgSolver(K.N, dev_K_data, dev_K_rows, dev_K_cols, dev_R, \
+		dev_u, dev_kinMask, preconditioning, true, false, 2, blockSize, \
+		dd_lines, dev_lineRows, lineCount);
+
+	unsigned iterNum = 0;
+	double relErr = 0.;
+	do {
+		assemble(K);
+		hostToDevice(dev_K_data, K.data, K.dataSize());
+
+		unsigned insideIter = 0;
+		insideIter = cgSolver.solve(1e-7);
+		cudaMemcpy(uv.data(), dev_u, K.N * sizeof(double), cudaMemcpyDeviceToHost);
+
+		updateParameters();
+		relErr = exitCondition();
+		printIter(iterNum, insideIter, relErr);
+
+		++iterNum;
+	} while (relErr > 1e-5);
+	calcPlastDeform();
+	solvingTime += omp_get_wtime();
+
+	std::cout << (iterOutput ? "\n" : "") << "Solved [" << solvingTime << " sec]\n";
+	if (!iterOutput)
+		std::cout << "Iterations: " << iterNum << "                                             " \
+		<< "\nExit error: " << exitCondition() << "\n";
+
 	plastSolved = true;
 
 	return solvingTime;

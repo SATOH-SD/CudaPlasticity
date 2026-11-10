@@ -564,11 +564,11 @@ public:
 		}
 	}
 
-	double solveLinearCPU_();
+	double solveLinearCPU_(); // LEGACY
 
 	double solveLinearCPU();
 
-	double solveLinearCUDA_();
+	double solveLinearCUDA_(); // LEGACY
 
 	double solveLinearCUDA();
 
@@ -609,6 +609,10 @@ public:
 		else
 			return solveCPU();
 	}
+
+	double solveLinearGpuAccelerated();
+
+	double solveGpuAccelerated();
 
 	//Энергия деформации
 	double deformEnergy() {

@@ -273,7 +273,7 @@ void plasticityTest() {
 	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 96 * 3, 64 * 3, 1);
 	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 144, 96, 2);
 	//unsigned scale = 64;
-	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 6 * scale, 4 * scale, 2, 2);
+	//mesh.genRectWithHole(-3., 3., -2., 2., 0.5, 6 * scale, 4 * scale, 1, 2);
 	//mesh.genRectangle(-2, 2, -2, 2, 2, 2);
 	//mesh.printAnalysis();
 	//mesh.renumByDirection();
@@ -333,7 +333,8 @@ void plasticityTest() {
 	//ps.floatBoost = false;
 	//ps.preconditioning = false;
 	 
-	ps.solve();
+	//ps.solve();
+	ps.solveGpuAccelerated();
 	//ps.solveCUDA();
 	//ps.solveLinear();
 
